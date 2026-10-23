@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<title>HCS 営業日報</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Barlow+Condensed:wght@600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* Layout: navy app bar, one input card with tap-chips, bottom 3-button nav (入力・見込み・分析). KPI colors are fixed semantics. */
+:root{
+  --bg:#EDF1F7; --surface:#FFFFFF; --surface2:#F5F8FC; --ink:#0F1B2D; --muted:#56667D; --line:#D3DCE8;
+  --brand:#0B3D91; --brand-ink:#FFFFFF;
+  --visit:#1668FF; --appr:#0C9F62; --prop:#EE8200; --order:#E0202E; --hot:#FF2D55;
+  --visit-soft:#E3EDFF; --appr-soft:#DDF5EA; --prop-soft:#FFF0DB; --order-soft:#FDE3E5;
+  --ok:#0C9F62; --danger:#D11A2A;
+  --f-body:"Noto Sans JP","Hiragino Sans","Yu Gothic UI",Meiryo,system-ui,sans-serif;
+  --f-num:"Barlow Condensed","Noto Sans JP",system-ui,sans-serif;
+  --r:12px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1220; --surface:#152033; --surface2:#1B2940; --ink:#ECF2FA; --muted:#9DB0C8; --line:#2B3B55;
+  --brand:#0A2B6B; --brand-ink:#FFFFFF;
+  --visit:#4F8FFF; --appr:#2CCB86; --prop:#FFA42B; --order:#FF4E5C; --hot:#FF4D73;
+  --visit-soft:#18305C; --appr-soft:#0F3A2B; --prop-soft:#43300F; --order-soft:#4A1A20;
+  --ok:#2CCB86; --danger:#FF5B67; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1220; --surface:#152033; --surface2:#1B2940; --ink:#ECF2FA; --muted:#9DB0C8; --line:#2B3B55;
+  --brand:#0A2B6B; --brand-ink:#FFFFFF;
+  --visit:#4F8FFF; --appr:#2CCB86; --prop:#FFA42B; --order:#FF4E5C; --hot:#FF4D73;
+  --visit-soft:#18305C; --appr-soft:#0F3A2B; --prop-soft:#43300F; --order-soft:#4A1A20;
+  --ok:#2CCB86; --danger:#FF5B67; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+img{max-width:100%}
+body.saving{cursor:progress}
+body.saving .bar h1::after{content:"  保存中…";font-size:12px;font-weight:500;opacity:.8}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.55;margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--visit);outline-offset:2px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+
+/* app bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--brand);color:var(--brand-ink);
+  display:flex;align-items:center;gap:12px;padding:0 16px;height:50px}
+.bar h1{font-size:17px;font-weight:900;margin:0;letter-spacing:.04em;white-space:nowrap}
+.bar .who{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;min-width:0}
+.bar .who b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;padding:5px 10px;font-size:12px;white-space:nowrap}
+.bar select{background:#fff;color:#0F1B2D;border:0;border-radius:8px;padding:5px 8px;font-size:13px;max-width:44vw}
+
+main{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:16px 48px;display:grid;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.card h2{font-size:16px;margin:0 0 12px;font-weight:900;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card h2 small{font-weight:500;color:var(--muted);font-size:12px}
+.sub{color:var(--muted);font-size:12px}
+
+/* KPI selector */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kbtn{border:2px solid var(--c);background:var(--surface);color:var(--c);border-radius:12px;padding:10px 4px;font-weight:900;font-size:15px;
+  display:flex;flex-direction:column;align-items:center;gap:2px}
+.kbtn .num{font-size:22px;line-height:1}
+.kbtn[aria-pressed="true"]{background:var(--c);color:#fff}
+@media (max-width:420px){.kbtn{font-size:13px}}
+
+/* form */
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;margin-top:14px}
+.field{display:grid;gap:6px;min-width:0}
+.field.wide{grid-column:1/-1}
+.field>label,.field>.lbl{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.05em}
+.in{width:100%;border:1.5px solid var(--line);background:var(--surface2);border-radius:10px;padding:10px 12px;min-height:46px;font-size:16px}
+.in:focus{border-color:var(--visit);outline:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1.5px solid var(--line);background:var(--surface2);border-radius:999px;padding:9px 16px;font-weight:700;min-height:44px}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+@media (max-width:640px){.form{grid-template-columns:1fr}}
+.hotbox{display:flex;align-items:center;gap:10px;border:2px dashed var(--hot);border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:900;color:var(--hot);min-height:50px}
+.hotbox input{width:24px;height:24px;accent-color:var(--hot)}
+.actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+.btn{border:0;border-radius:12px;padding:12px 22px;font-weight:900;font-size:16px;min-height:50px}
+.btn.primary{background:var(--c,var(--visit));color:#fff;flex:1}
+.btn.ghost{background:var(--surface2);border:1.5px solid var(--line)}
+.btn.small{padding:6px 12px;min-height:34px;font-size:13px;border-radius:8px}
+
+/* lists */
+.list{display:grid;gap:8px}
+.row{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-left:5px solid var(--c,var(--line));border-radius:10px;padding:10px 12px;background:var(--surface);flex-wrap:wrap}
+.row .main{flex:1;min-width:160px}
+.row .nm{font-weight:900;font-size:15px}
+.row .meta{font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 10px}
+.row .ops{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tag{display:inline-flex;align-items:center;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:900;background:var(--c);color:#fff;white-space:nowrap}
+.tag.hot{--c:var(--hot)}
+.tag.soft{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}
+.mini{border:1.5px solid var(--line);background:var(--surface2);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;min-height:34px}
+.mini.go{border-color:var(--c);color:var(--c);background:var(--surface)}
+.mini.del{color:var(--danger)}
+.mini.del.arm{background:var(--danger);color:#fff;border-color:var(--danger)}
+.mini.hott[aria-pressed="true"]{background:var(--hot);border-color:var(--hot);color:#fff}
+.empty{border:1.5px dashed var(--line);border-radius:10px;padding:18px;text-align:center;color:var(--muted);font-size:13px}
+select.mini{padding:5px 6px}
+input.mini{padding:4px 6px}
+
+/* summary tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.tile{border-radius:12px;padding:12px;background:var(--soft);border:1.5px solid var(--c);min-width:0}
+.tile .t{font-size:12px;font-weight:900;color:var(--c)}
+.tile .v{font-size:40px;line-height:1;font-weight:700;color:var(--ink)}
+.tile .v small{font-size:14px;color:var(--muted);margin-left:2px;font-family:var(--f-body)}
+.rates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+.rate{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface2);min-width:0}
+.rate .t{font-size:11px;color:var(--muted);font-weight:700}
+.rate .v{font-size:30px;font-weight:700;line-height:1.1}
+.rate .v small{font-size:13px;color:var(--muted);font-family:var(--f-body)}
+.bar-meter{height:6px;border-radius:9px;background:var(--line);overflow:hidden;margin-top:6px}
+.bar-meter i{display:block;height:100%;background:var(--c)}
+@media (max-width:640px){.tiles,.rates{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.period{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.period .lab{font-weight:900;font-size:17px;min-width:0}
+.seg{display:inline-flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--surface2);padding:8px 14px;font-weight:700;min-height:40px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.nav-arr{border:1.5px solid var(--line);background:var(--surface2);border-radius:10px;min-width:40px;min-height:40px;font-weight:900}
+
+.chartbox{position:relative;width:100%}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:820px){.grid2{grid-template-columns:1fr}}
+.tbl-wrap{overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:12px;color:var(--muted);background:var(--surface2)}
+td.n{font-family:var(--f-num);font-size:16px;font-variant-numeric:tabular-nums}
+tr.total td{font-weight:900;background:var(--surface2)}
+
+/* bottom nav */
+.tabbar{position:sticky;top:calc(env(safe-area-inset-top,0px) + 50px);z-index:19;background:var(--surface);border-bottom:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 16px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.tabbar button{border:0;background:none;border-radius:10px;padding:9px 4px;font-weight:900;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:6px;font-size:15px;border-bottom:3px solid transparent}
+.tabbar button svg{width:20px;height:20px}
+.tabbar button[aria-current="page"]{border-bottom-color:var(--visit)}
+.tabbar button[aria-current="page"]{color:var(--brand);background:var(--visit-soft)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tabbar button[aria-current="page"]{color:var(--ink)}}
+:root[data-theme="dark"] .tabbar button[aria-current="page"]{color:var(--ink)}
+
+/* login */
+.login{max-width:420px;margin:8vh auto 0;padding-inline:16px}
+.login .card{padding:24px;display:grid;gap:14px}
+.login h1{font-size:22px;margin:0;font-weight:900}
+.err{color:var(--danger);font-weight:700;font-size:13px;min-height:1.2em}
+.remember{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.notice{background:var(--prop-soft);border:1px solid var(--prop);border-radius:10px;padding:12px;font-size:13px}
+
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);
+  padding:10px 18px;border-radius:999px;font-weight:700;z-index:50;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:calc(100% - 32px)}
+.editing-banner{background:var(--prop-soft);border:1.5px solid var(--prop);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px;margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.daybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.filter{display:flex;gap:6px;flex-wrap:wrap}
+.note{display:grid;gap:4px;margin-top:12px;background:var(--visit-soft);border:1.5px solid var(--visit);border-radius:10px;padding:10px 14px;font-size:12.5px;line-height:1.6}
+.note>b{color:var(--visit);font-size:13px}
+.orderbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;border:2px solid var(--order);background:var(--order-soft);border-radius:12px;padding:12px 14px}
+@media (max-width:640px){.orderbox{grid-template-columns:1fr}}
+.kbtn .desc{font-size:11px;font-weight:500;opacity:.85}
+.datepick{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.datepick .in{width:auto;min-width:170px}
+textarea.in{min-height:110px;resize:vertical;line-height:1.6}
+.memo{margin-top:4px;font-size:13px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+.daysum{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.daysum>span{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--c);border-radius:8px;padding:2px 10px;color:var(--c);font-size:12px}
+.daysum .num{font-size:20px;color:var(--ink)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+/* ---------- master data ---------- */
+const KPIS = [
+  {k:"visit", label:"来場",       c:"--visit", s:"--visit-soft"},
+  {k:"appr",  label:"アプローチ", c:"--appr",  s:"--appr-soft"},
+  {k:"prop",  label:"提案",       c:"--prop",  s:"--prop-soft"},
+  {k:"order", label:"受注",       c:"--order", s:"--order-soft"},
+];
+const KMAP = Object.fromEntries(KPIS.map(k=>[k.k,k]));
+/* one record per visit; k = how far it went. KPIs are counted cumulatively (受注 also counts as 来場・アプローチ・提案) */
+const STAGES = [
+  {k:"visit", label:"来場のみ",   short:"来場",       desc:"アプローチできず", c:"--visit"},
+  {k:"appr",  label:"アプローチ", short:"アプローチ", desc:"提案に至らず",     c:"--appr"},
+  {k:"prop",  label:"提案",       short:"提案",       desc:"見積・提案まで",   c:"--prop"},
+  {k:"order", label:"受注",       short:"受注",       desc:"ご成約",           c:"--order"},
+];
+const STAGE = Object.fromEntries(STAGES.map(x=>[x.k,x]));
+const RANK = {visit:0, appr:1, prop:2, order:3};
+const reach = (e, kk) => (RANK[e.k] ?? 0) >= RANK[kk];
+const RTYPES = ["12ヵ月点検","一般整備","車検 6M","安全点検","車検 3M","車検 1M","無料1ヵ月点検","車検 0M","無料6ヵ月点検","車検 2M","その他（自保険・残クレ等）","その他（引継・伺い等）","車検 (月数不明)","車検・入庫","板金塗装"];
+const CLS = ["管理内","準管理","新規"];
+const YN = ["あり","なし"];
+const CARS = ["N-BOX","N-BOX カスタム","N-BOX JOY","N-ONE","N-WGN","N-WGN カスタム","N-VAN","N-VAN e:","フィット","フィット e:HEV","フリード","フリード クロスター","WR-V","ヴェゼル","ZR-V","CR-V","CR-V e:FCEV","シビック","シビック TYPE R","アコード","プレリュード","ステップワゴン","ステップワゴン スパーダ","オデッセイ","インサイト","シャトル","グレイス","S660","その他HONDA車","他メーカー","未定"];
+const PST = ["見込み","受注","失注"];
+const OPTS = ["保険","JAF","楽マル","コーティング","延長保証","その他"];
+const DIMS = [
+  {key:"rtype", label:"予約区分", values:()=>RTYPES.concat(["未選択"])},
+  {key:"rsv",   label:"予約",     values:()=>YN},
+  {key:"cls",   label:"顧客分類", values:()=>CLS},
+  {key:"car",   label:"既納車種", values:()=>CARS.concat(["未選択"])},
+  {key:"test",  label:"試乗",     values:()=>YN},
+];
+
+/* ---------- utils ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parse = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+const today = () => ymd(new Date());
+const WD = ["日","月","火","水","木","金","土"];
+const md = s => { const d = parse(s); return (d.getMonth()+1)+"/"+d.getDate()+"("+WD[d.getDay()]+")"; };
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const rate = (a,b) => b ? (a/b*100) : null;
+const fmtRate = r => r == null ? "—" : r.toFixed(1);
+function range(mode, anchor){
+  const d = parse(anchor);
+  if (mode === "month"){ const s=new Date(d.getFullYear(), d.getMonth(), 1), e=new Date(d.getFullYear(), d.getMonth()+1, 0); return {s:ymd(s), e:ymd(e), days:e.getDate(), start:s}; }
+  const off = (d.getDay()+6)%7; const s = new Date(d); s.setDate(d.getDate()-off); const e = new Date(s); e.setDate(s.getDate()+6);
+  return {s:ymd(s), e:ymd(e), days:7, start:s};
+}
+function rangeLabel(mode, anchor){
+  const r = range(mode, anchor);
+  if (mode === "month"){ const d = parse(r.s); return d.getFullYear()+"年"+(d.getMonth()+1)+"月"; }
+  return md(r.s)+" 〜 "+md(r.e);
+}
+function shift(mode, anchor, n){
+  const d = parse(anchor);
+  if (mode === "month") return ymd(new Date(d.getFullYear(), d.getMonth()+n, 1));
+  d.setDate(d.getDate()+7*n); return ymd(d);
+}
+const store = {
+  get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k){ try { localStorage.removeItem(k); } catch {} },
+};
+let toastT;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, 2200); }
+
+/* ---------- state ---------- */
+const S = {
+  loaded:false, loadError:"", session:null, manager:false,
+  view:"input", kpi:"visit",
+  form:null, editing:null, listDate:today(),
+  mode:"month", anchor:today(), dim:"rtype",
+  staff:[],                // [{key,name}]
+  scope:"all",             // manager: "all" or staff key
+  entries:{}, prosp:{},    // key -> array of {id,...}
+  subs:[], prospFilter:"open", charts:[],
+  pform:{pn:"",pp:"",pr:"",pc:"",pm:""},
+};
+/* 画面を開いたまま日付・月が変わったら、今日・今月の表示に切り替える */
+let lastDay = today();
+function syncToday(){
+  const t = today(); if (t === lastDay) return;
+  const was = lastDay; lastDay = t;
+  if (S.listDate === was) S.listDate = t;
+  if (S.form && S.form.d === was && !S.editing) S.form.d = t;
+  const r = range(S.mode, S.anchor); if (was >= r.s && was <= r.e) S.anchor = t;
+  if (S.session && S.loaded) render();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncToday(); });
+window.addEventListener("focus", syncToday);
+setInterval(syncToday, 60000);
+const blankForm = () => ({ d:S.listDate||today(), rsv:"あり", name:"", cls:"管理内", rtype:"", car:"", test:"なし", apo:"なし", hot:false, ocar:"", opts:[], memo:"" });
+S.form = blankForm();
+
+/* ---------- server (Google Apps Script) ---------- */
+/* Apps Script の画面内なら google.script.run、外部に置いたこのファイルからは API_URL に Cookie なしで POST する。
+   Cookie を送らないので、端末の Google アカウントのログイン状態（複数アカウント等）に関係なく使える。
+   ?demo を付けて開くとサーバーにつながらない「お試しモード」 */
+const API_URL = "https://script.google.com/macros/s/AKfycbyAp-HBgZRsol_Iw9MAkKF_5dDgQezuIXVwOAjQQwwyrcbz_kWuZiPh84pFhfPmbbOG/exec";
+const HAS_GAS = typeof google !== "undefined" && google.script && google.script.run;
+const DEMO = !HAS_GAS && (!API_URL || /[?&]demo\b/.test(location.search));
+const parseRes = s => { let r; try { r = JSON.parse(s); } catch { throw new Error("通信エラー。時間をおいて再度お試しください"); } if (!r.ok) throw new Error(r.error); return r; };
+function viaFetch(req){
+  return fetch(API_URL, {method:"POST", body:JSON.stringify(req), headers:{"Content-Type":"text/plain;charset=utf-8"}, credentials:"omit", redirect:"follow", cache:"no-store"})
+    .catch(() => { throw new Error("サーバーにつながりません。通信状況を確認してください"); })
+    .then(r => r.text()).then(parseRes);
+}
+function viaGas(req){
+  return new Promise((res, rej) => {
+    google.script.run
+      .withSuccessHandler(s => { try { res(parseRes(s)); } catch(e){ rej(e); } })
+      .withFailureHandler(e => rej(Object.assign(new Error((e && e.message) || "通信エラー"), {transport:true})))
+      .api(req);
+  });
+}
+function call(req){
+  if (S.session && S.session.token) req.token = S.session.token;
+  if (DEMO) return mockApi(req);
+  if (!HAS_GAS) return viaFetch(req);
+  // google.script.run がアカウントの都合で失敗したときは Cookie なしの経路でやり直す
+  return viaGas(req).catch(e => { if (e.transport && API_URL) return viaFetch(req); throw e; });
+}
+const newId = () => "x" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+/* same shape as the calls the views already make: eCol(k).doc(id).set/update/delete, eCol(k).add */
+function makeCol(kind){
+  const list = () => (kind === "e" ? S.entries : S.prosp);
+  const apply = row => { const m = list(); const arr = (m[row.staff] = (m[row.staff] || []).filter(x => x.id !== row.id)); arr.push(row); render(); };
+  return {
+    doc(id){ id = id || newId(); return {
+      id,
+      set: data => call({action:"set", kind, id, data}).then(r => apply(r.row)),
+      update: data => call({action:"update", kind, id, data}).then(r => apply(r.row)),
+      delete: () => call({action:"remove", kind, id}).then(() => { const m = list(); Object.keys(m).forEach(k => m[k] = m[k].filter(x => x.id !== id)); render(); }),
+    }; },
+    add(data){ const ref = this.doc(); return ref.set(data).then(() => ref); },
+  };
+}
+const eCol = () => makeCol("e");
+const pCol = () => makeCol("p");
+let busy = 0;
+async function write(fn){
+  busy++; document.body.classList.add("saving");
+  try { await fn(); return true; }
+  catch(e){
+    const m = (e && e.message) || "";
+    if (m.startsWith("AUTH:")){ logout(); renderLogin(m.slice(5).trim()); return false; }
+    toast(m || "保存できませんでした。通信を確認して再度お試しください");
+    return false;
+  } finally { if (--busy === 0) document.body.classList.remove("saving"); }
+}
+async function loadAll(){
+  S.loaded = false; render();
+  try {
+    const r = await call({action:"load"});
+    S.staff = r.staff.map(n => ({key:n, name:n}));
+    S.entries = {}; S.prosp = {};
+    r.staff.forEach(n => { S.entries[n] = []; S.prosp[n] = []; });
+    r.entries.forEach(e => (S.entries[e.staff] = S.entries[e.staff] || []).push(e));
+    r.prosp.forEach(p => (S.prosp[p.staff] = S.prosp[p.staff] || []).push(p));
+    S.loaded = true; render();
+  } catch(e){
+    const m = (e && e.message) || "";
+    if (m.startsWith("AUTH:")){ logout(); renderLogin(m.slice(5).trim()); return; }
+    S.loadError = m || "読み込めませんでした"; render();
+  }
+}
+/* visible data for current scope */
+function scopeKeys(){ return S.manager ? (S.scope==="all" ? S.staff.map(s=>s.key) : [S.scope]) : [S.session.key]; }
+const staffName = key => key || "";
+function allEntries(){ return scopeKeys().flatMap(k => (S.entries[k]||[]).map(e=>({...e, _k:k}))); }
+function allProsp(){ return scopeKeys().flatMap(k => (S.prosp[k]||[]).map(e=>({...e, _k:k}))); }
+
+/* ---------- login ---------- */
+function renderLogin(msg){
+  const saved = store.get("hcs_login") || {};
+  destroyCharts();
+  $("#app").innerHTML = `
+  <div class="login"><form class="card" id="lf" autocomplete="off">
+    <div><div class="sub">来場・アプローチ・提案・受注の日報</div><h1>HCS 営業日報</h1></div>
+    ${!DEMO ? "" : `<div class="notice">お試しモード：サーバーにつながっていないため、入力はこの端末のブラウザにだけ保存されます。</div>`}
+    <div class="field"><label for="ln">ログインID</label><input class="in" id="ln" value="${esc(saved.name||"")}" placeholder="例：honda" autocapitalize="off" autocorrect="off" spellcheck="false" required></div>
+    <div class="field"><label for="lp">パスワード</label><input class="in" id="lp" type="password" autocapitalize="off" required></div>
+    <label class="remember"><input type="checkbox" id="lr" ${saved.name?"checked":""}> この端末でログインを記憶する（30日）</label>
+    <div class="err" id="lerr">${esc(msg||"")}</div>
+    <button class="btn primary" id="lbtn" style="--c:var(--brand)" type="submit">ログイン</button>
+    <div class="sub">ログインIDとパスワードは管理者にお問い合わせください。</div>
+  </form></div>`;
+  $("#lf").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const name = $("#ln").value.trim(), pw = $("#lp").value, remember = $("#lr").checked;
+    if (!name || !pw){ $("#lerr").textContent = "ログインIDとパスワードを入力してください"; return; }
+    const btn = $("#lbtn"); btn.disabled = true; btn.textContent = "確認中…";
+    try {
+      const r = await call({action:"login", name, pw, remember});
+      if (remember) store.set("hcs_login", {name}); else store.del("hcs_login");
+      startSession({token:r.token, name:r.name, manager:r.manager}, remember);
+    } catch(e){
+      $("#lerr").textContent = (e && e.message) || "ログインできませんでした";
+      btn.disabled = false; btn.textContent = "ログイン";
+    }
+  });
+}
+function startSession(sess, remember){
+  S.session = {name:sess.name, key:sess.name, token:sess.token};
+  S.manager = !!sess.manager;
+  S.view = S.manager ? "report" : "input";
+  S.scope = "all";
+  if (remember !== false) store.set("hcs_session", sess);
+  loadAll();
+}
+function logout(){ S.session=null; S.staff=[]; S.entries={}; S.prosp={}; S.loaded=false; store.del("hcs_session"); destroyCharts(); renderLogin(); }
+
+/* ---------- お試しモード（サーバーなしでブラウザ内に保存） ---------- */
+function mockApi(req){
+  const KEY = "hcs_mock_db";
+  const db = store.get(KEY) || {e:[], p:[], staff:[]};
+  const save = () => store.set(KEY, db);
+  const who = () => { try { return JSON.parse(decodeURIComponent(escape(atob(String(req.token||"").split(".")[0] || "")))); } catch { return null; } };
+  return new Promise((res, rej) => setTimeout(() => {
+    if (req.action === "login"){
+      const manager = req.name.toLowerCase() === "admin";
+      if (!req.pw) return rej(new Error("パスワードを入力してください")); // お試しモードはパスワード不問（本番のパスワードをここに書かない）
+      if (!manager && !db.staff.includes(req.name)){ db.staff.push(req.name); save(); }
+      return res({token: btoa(unescape(encodeURIComponent(JSON.stringify({n:req.name, m:manager})))) + ".mock", name:req.name, manager});
+    }
+    const u = who(); if (!u) return rej(new Error("AUTH: ログインしてください"));
+    if (req.action === "load"){
+      const mine = r => u.m || r.staff === u.n;
+      return res({staff: u.m ? db.staff.slice().sort() : [u.n], entries: db.e.filter(mine), prosp: db.p.filter(mine)});
+    }
+    if (u.m) return rej(new Error("管理者アカウントでは入力できません"));
+    const arr = db[req.kind], i = arr.findIndex(r => r.id === req.id);
+    if (req.action === "remove"){ if (i >= 0) arr.splice(i, 1); save(); return res({id:req.id}); }
+    if (req.action === "update" && i < 0) return rej(new Error("データが見つかりません"));
+    const row = {...(i >= 0 ? arr[i] : {}), ...req.data, id:req.id, staff:u.n};
+    if (i >= 0) arr[i] = row; else arr.push(row);
+    save(); res({row});
+  }, 150));
+}
+
+/* ---------- render root ---------- */
+const ICON = {
+  input:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20h16M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19H6z"/></svg>',
+  prospect:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z"/></svg>',
+  report:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+};
+function render(){
+  if (!S.session){ renderLogin(); return; }
+  const active = document.activeElement && document.activeElement.id;
+  const views = S.manager ? [["prospect","見込み"],["report","分析"]] : [["input","入力"],["prospect","見込み"],["report","分析"]];
+  const staffSel = S.manager ? `<select id="scope" aria-label="表示する担当">
+      <option value="all"${S.scope==="all"?" selected":""}>全員（${S.staff.length}名）</option>
+      ${S.staff.map(s=>`<option value="${s.key}"${S.scope===s.key?" selected":""}>${esc(s.name)}</option>`).join("")}
+    </select>` : "";
+  let body = "";
+  if (S.view==="input") body = viewInput();
+  else if (S.view==="prospect") body = viewProspect();
+  else body = viewReport();
+  destroyCharts();
+  $("#app").innerHTML = `
+    <header class="bar"><h1>HCS 営業日報</h1>
+      <div class="who">${S.manager ? staffSel : `<b>${esc(S.session.name)}</b>`}<button id="refresh" title="最新のデータを読み込む">更新</button><button id="logout">ログアウト</button></div>
+    </header>
+    <nav class="tabbar" style="grid-template-columns:repeat(${views.length},1fr)">
+      ${views.map(([v,l])=>`<button data-view="${v}" ${S.view===v?'aria-current="page"':""}>${ICON[v]}${l}</button>`).join("")}
+    </nav>
+    <main>${S.loadError ? `<div class="card notice">${esc(S.loadError)}<div class="actions"><button class="btn ghost" id="reload">再読み込み</button></div></div>` : !S.loaded ? `<div class="empty">データを読み込み中…</div>` : body}</main>
+`;
+  if (S.view==="report" && S.loaded) drawCharts();
+  if (active){ const el=document.getElementById(active); if (el && el.tagName==="INPUT" && el.type==="text"){ el.focus(); const v=el.value; el.setSelectionRange(v.length,v.length);} }
+}
+
+/* ---------- INPUT view ---------- */
+function chips(field, opts, val){
+  return `<div class="chips" role="group">${opts.map(o=>`<button type="button" class="chip" data-chip="${field}" data-v="${esc(o)}" aria-pressed="${val===o}">${esc(o)}</button>`).join("")}</div>`;
+}
+function selectEl(id, field, opts, val, ph){
+  return `<select class="in" id="${id}" data-field="${field}"><option value="">${ph}</option>${opts.map(o=>`<option${o===val?" selected":""}>${esc(o)}</option>`).join("")}</select>`;
+}
+function relDay(n){ const d=new Date(); d.setDate(d.getDate()+n); return ymd(d); }
+function viewInput(){
+  const f = S.form, st = STAGE[S.kpi];
+  const day = allEntries().filter(e=>e.d===S.listDate);
+  const dc = counts(day);
+  const stageBtns = STAGES.map(x=>`<button type="button" class="kbtn" style="--c:var(${x.c})" data-kpi="${x.k}" aria-pressed="${S.kpi===x.k}">${x.label}<span class="desc">${x.desc}</span></button>`).join("");
+  const quick = [[0,"今日"],[-1,"昨日"],[-2,"2日前"],[-3,"3日前"]].map(([n,l])=>`<button type="button" class="chip" data-qd="${n}" aria-pressed="${f.d===relDay(n)}">${l}</button>`).join("");
+  const next = {visit:"appr", appr:"prop", prop:"order"};
+  const rows = day.sort((a,b)=>(a.ts||0)-(b.ts||0)).map(e=>{
+    const s = STAGE[e.k] || STAGE.visit, n = next[e.k];
+    return `<div class="row" style="--c:var(${s.c})">
+      <span class="tag" style="--c:var(${s.c})">${s.label}</span>
+      <div class="main"><div class="nm">${esc(e.name)} ${e.k==="prop"&&e.hot?'<span class="tag hot">HOT</span>':""}${e.apo==="あり"?' <span class="tag soft">次回アポあり</span>':""}</div>
+        <div class="meta"><span>予約:${esc(e.rsv)}</span><span>${esc(e.cls)}</span><span>${esc(e.rtype||"区分未選択")}</span><span>既納:${esc(e.car||"未選択")}</span><span>試乗:${esc(e.test)}</span>${e.k==="order"?`<span><b>受注車種:${esc(e.ocar||"未選択")}</b></span><span>付帯:${esc((e.opts||[]).join("・")||"なし")}</span>`:""}</div>${e.memo?`<div class="memo">${esc(e.memo)}</div>`:""}</div>
+      <div class="ops">
+        ${e.k==="prop"?`<button class="mini hott" data-hot="${e.id}" aria-pressed="${!!e.hot}">HOT</button>`:""}
+        ${n?`<button class="mini go" style="--c:var(${STAGE[n].c})" data-promote="${e.id}" data-to="${n}">→${STAGE[n].short}に変更</button>`:""}
+        <button class="mini" data-edit="${e.id}">編集</button>
+        <button class="mini del" data-del="${e.id}">削除</button>
+      </div></div>`;
+  }).join("");
+  return `
+  <section class="card">
+    <h2>来場を入力 <small>お客様1回の来場につき1件。結果でどこまで進んだかを選びます</small></h2>
+    ${S.editing?`<div class="editing-banner">編集中：${esc(f.name)}<button type="button" class="mini" id="cancelEdit">編集をやめる</button></div>`:""}
+    <form id="ef" class="form" autocomplete="off">
+      <div class="field wide"><label for="fd">来場日 <span class="sub">入力もれは日付を戻して入力できます</span></label>
+        <div class="datepick"><input class="in" type="date" id="fd" data-field="d" value="${esc(f.d)}" max="${today()}"><div class="chips">${quick}</div></div></div>
+      <div class="field wide"><label for="fn">顧客名</label><input class="in" type="text" id="fn" data-field="name" value="${esc(f.name)}" placeholder="例：本田 太郎 様" enterkeyhint="done"></div>
+      <div class="field"><span class="lbl">予約</span>${chips("rsv", YN, f.rsv)}</div>
+      <div class="field"><span class="lbl">顧客分類</span>${chips("cls", CLS, f.cls)}</div>
+      <div class="field"><label for="fr">予約区分</label>${selectEl("fr","rtype",RTYPES,f.rtype,"選択してください")}</div>
+      <div class="field"><label for="fc">既納車種</label>${selectEl("fc","car",CARS,f.car,"選択してください")}</div>
+      <div class="field"><span class="lbl">試乗</span>${chips("test", YN, f.test)}</div>
+      <div class="field wide"><label for="fmemo">詳細（お客様と話した内容）<span class="sub">任意</span></label>
+        <textarea class="in" id="fmemo" rows="4" placeholder="例：来年3月の車検でN-BOXからフリードへの乗り換えを検討。奥様と再来場予定。予算は月3万円以内">${esc(f.memo||"")}</textarea></div>
+      <div class="field wide"><span class="lbl">結果（どこまで進んだか）</span><div class="kpis">${stageBtns}</div></div>
+      ${S.kpi==="appr"||S.kpi==="prop"?`<div class="field"><span class="lbl">次回アポ</span>${chips("apo", YN, f.apo)}</div>`:""}
+      ${S.kpi==="order"?`<div class="orderbox field wide"><div class="field"><label for="fo">受注車種</label>${selectEl("fo","ocar",CARS,f.ocar,"選択してください")}</div>
+        <div class="field"><span class="lbl">付帯項目（複数選択できます）</span><div class="chips" role="group">${OPTS.map(o=>`<button type="button" class="chip" data-multi="${esc(o)}" aria-pressed="${(f.opts||[]).includes(o)}">${esc(o)}</button>`).join("")}</div></div></div>`:""}
+      ${S.kpi==="prop"?`<label class="hotbox field wide" for="fh"><input type="checkbox" id="fh" data-field="hot" ${f.hot?"checked":""}> HOT（見込み）としてチェック → 見込みリストに自動で入ります</label>`:""}
+    </form>
+    <div class="actions"><button class="btn primary" id="save" style="--c:var(${st.c})">${S.editing?"更新する":"登録する（結果：" + st.label + "）"}</button></div>
+  </section>
+  <section class="card">
+    <div class="daybar"><h2 style="margin:0">入力済み</h2>
+      <button class="nav-arr" data-day="-1" aria-label="前の日">‹</button>
+      <input class="in" style="width:auto;min-height:40px;padding:6px 10px" type="date" id="ld" value="${S.listDate}">
+      <button class="nav-arr" data-day="1" aria-label="次の日">›</button>
+      <span class="sub">${md(S.listDate)} ・ ${day.length}件</span></div>
+    <div class="daysum">${KPIS.map(k=>`<span style="--c:var(${k.c})"><b>${k.label}</b><span class="num">${dc[k.k]}</span></span>`).join("")}</div>
+    <div class="list">${rows || `<div class="empty">この日の入力はまだありません。上のフォームから登録すると、ここに並びます。<br>後日お話が進んだら「→提案に変更」「→受注に変更」を押すだけで更新できます。</div>`}</div>
+  </section>`;
+}
+async function saveEntry(){
+  const f = S.form;
+  if (!f.name.trim()){ toast("顧客名を入力してください"); $("#fn") && $("#fn").focus(); return; }
+  if (!f.d){ toast("来場日を選んでください"); return; }
+  const key = S.session.key;
+  const body = {k:S.kpi, d:f.d, rsv:f.rsv, name:f.name.trim(), cls:f.cls, rtype:f.rtype, car:f.car, test:f.test,
+    apo:(S.kpi==="appr"||S.kpi==="prop") ? f.apo : "なし", hot:S.kpi==="prop" ? !!f.hot : false,
+    ocar:S.kpi==="order" ? f.ocar : "", opts:S.kpi==="order" ? (f.opts||[]).slice() : [], memo:(f.memo||"").trim()};
+  if (S.editing){
+    const old = (S.entries[key]||[]).find(e=>e.id===S.editing) || {};
+    const ok = await write(()=>eCol(key).doc(S.editing).set({...clean(old), ...body, ts:old.ts||Date.now()}));
+    if (ok){ toast("更新しました"); S.editing=null; S.kpi="visit"; S.form = {...blankForm(), d:f.d}; render(); }
+  } else {
+    const ok = await write(()=>eCol(key).add({...body, pst:"見込み", ts:Date.now()}));
+    if (ok){ toast(f.name.trim()+" を登録しました（"+STAGE[S.kpi].label+"）"); S.listDate = f.d; S.kpi="visit"; S.form = {...blankForm(), d:f.d}; render(); }
+  }
+}
+function clean(o){ const r={}; for (const [k,v] of Object.entries(o)) if (v!==undefined && k!=="id" && k!=="_k") r[k]=v; return r; }
+
+/* ---------- PROSPECT view ---------- */
+function viewProspect(){
+  const ro = S.manager;
+  const cur = range("month", today());
+  const ents = allEntries();
+  const showStaff = S.manager && S.scope==="all";
+  const monthProps = ents.filter(e=>reach(e,"prop") && e.d>=cur.s && e.d<=cur.e).sort((a,b)=>b.d.localeCompare(a.d));
+  const auto = ents.filter(e=>reach(e,"prop") && e.hot).map(e=>({...e, src:"auto", pst: e.k==="order" ? "受注" : (e.pst==="受注" ? "見込み" : (e.pst||"見込み"))}));
+  const man = allProsp().map(p=>({...p, src:"manual"}));
+  let pros = auto.concat(man);
+  if (S.prospFilter==="open") pros = pros.filter(p=>(p.pst||"見込み")==="見込み");
+  pros.sort((a,b)=>(a.plan||"9999").localeCompare(b.plan||"9999") || (b.d||"").localeCompare(a.d||""));
+  const stSel = (p) => ro ? `<span class="tag soft">${esc(p.pst||"見込み")}</span>` :
+    `<select class="mini" data-pst="${p.id}" data-src="${p.src}" aria-label="状態">${PST.map(s=>`<option${(p.pst||"見込み")===s?" selected":""}>${s}</option>`).join("")}</select>`;
+  const planIn = (p) => ro ? (p.plan?`<span>来場予定 ${md(p.plan)}</span>`:"") :
+    `<label class="sub">来場予定 <input class="mini" type="date" data-plan="${p.id}" data-src="${p.src}" value="${esc(p.plan||"")}"></label>`;
+  const propRows = monthProps.map(e=>`<div class="row" style="--c:var(--prop)">
+      <div class="main"><div class="nm">${esc(e.name)} ${e.k==="order"?'<span class="tag" style="--c:var(--order)">受注</span>':""} ${e.hot?'<span class="tag hot">HOT</span>':""}</div>
+      <div class="meta"><span>${md(e.d)}</span><span>${esc(e.rtype||"区分未選択")}</span><span>既納:${esc(e.car||"未選択")}</span><span>${esc(e.cls)}</span>${showStaff?`<span>担当:${esc(staffName(e._k))}</span>`:""}</div>${e.memo?`<div class="memo">${esc(e.memo)}</div>`:""}</div>
+      <div class="ops">${ro||e.k==="order"?"":`<button class="mini hott" data-hot="${e.id}" aria-pressed="${!!e.hot}">HOT</button>`}</div></div>`).join("");
+  const prosRows = pros.map(p=>`<div class="row" style="--c:var(${p.src==="auto"?"--prop":"--visit"})">
+      <div class="main"><div class="nm">${esc(p.name)} <span class="tag" style="--c:var(${p.src==="auto"?"--prop":"--visit"})">${p.src==="auto"?"来場提案":"手入力"}</span></div>
+      <div class="meta"><span>${esc(p.rtype||"区分未選択")}</span>${p.car?`<span>${esc(p.car)}</span>`:""}<span>登録 ${p.d?md(p.d):"—"}</span>${showStaff?`<span>担当:${esc(staffName(p._k))}</span>`:""}</div>${p.memo?`<div class="memo">${esc(p.memo)}</div>`:""}</div>
+      <div class="ops">${planIn(p)}${stSel(p)}${!ro&&p.src==="manual"?`<button class="mini del" data-pdel="${p.id}">削除</button>`:""}</div></div>`).join("");
+  const openCount = auto.concat(man).filter(p=>(p.pst||"見込み")==="見込み").length;
+  return `
+  ${ro?"":`<section class="card">
+    <h2>見込みを手入力 <small>来場がなくても追加できます</small></h2>
+    <form id="pf" class="form" autocomplete="off" style="margin-top:0">
+      <div class="field"><label for="pn">顧客名</label><input class="in" type="text" id="pn" value="${esc(S.pform.pn)}" placeholder="例：本田 花子 様"></div>
+      <div class="field"><label for="pp">来場予定日</label><input class="in" type="date" id="pp" value="${esc(S.pform.pp)}"></div>
+      <div class="field"><label for="pr">予約区分</label>${selectEl("pr","",RTYPES,S.pform.pr,"選択してください")}</div>
+      <div class="field"><label for="pc">既納車種（任意）</label>${selectEl("pc","",CARS,S.pform.pc,"選択してください")}</div>
+      <div class="field wide"><label for="pm">メモ（任意）</label><input class="in" type="text" id="pm" value="${esc(S.pform.pm)}" placeholder="例：半年前に来場、ボーナス時期に再提案"></div>
+    </form>
+    <div class="actions"><button class="btn primary" id="padd" style="--c:var(--visit)">見込みリストに追加</button></div>
+  </section>`}
+  <section class="card">
+    <h2>見込みリスト <small>HOTの提案（自動）＋手入力 ・ 見込み中 ${openCount}件</small></h2>
+    <div class="filter" style="margin-bottom:10px">
+      <div class="seg"><button data-pf="open" aria-pressed="${S.prospFilter==="open"}">見込み中</button><button data-pf="all" aria-pressed="${S.prospFilter==="all"}">すべて</button></div>
+    </div>
+    <div class="list">${prosRows || `<div class="empty">見込みはまだありません。入力画面で「提案」にHOTをチェックするか、上のフォームから手入力で追加できます。</div>`}</div>
+  </section>
+  <section class="card">
+    <h2>当月の来場からの提案 <small>${rangeLabel("month", today())} ・ ${monthProps.length}件（HOT ${monthProps.filter(e=>e.hot).length}件）</small></h2>
+    <div class="list">${propRows || `<div class="empty">今月の提案はまだありません。</div>`}</div>
+  </section>`;
+}
+
+/* ---------- REPORT view ---------- */
+function periodEntries(){ const r = range(S.mode, S.anchor); return allEntries().filter(e=>e.d>=r.s && e.d<=r.e); }
+/* unique customers: one person counts once per KPI in the list, at the furthest stage any of their visits reached */
+const normName = n => String(n||"").replace(/[\s　]+/g,"").replace(/(様|さま)$/,"");
+function counts(list){
+  const best = new Map();
+  list.forEach(e=>{ const id=(e._k||"")+"|"+normName(e.name); const r=RANK[e.k] ?? 0; if (!best.has(id) || best.get(id) < r) best.set(id, r); });
+  const c={visit:0,appr:0,prop:0,order:0};
+  best.forEach(r=>{ KPIS.forEach(k=>{ if (r >= RANK[k.k]) c[k.k]++; }); });
+  return c;
+}
+function viewReport(){
+  const list = periodEntries(), c = counts(list);
+  const hot = list.filter(e=>e.k==="prop" && e.hot).length, apo = list.filter(e=>e.apo==="あり").length;
+  const rates = [
+    {t:"アプローチ率", sub:"来場 → アプローチ", v:rate(c.appr,c.visit), c:"--appr"},
+    {t:"提案率", sub:"アプローチ → 提案", v:rate(c.prop,c.appr), c:"--prop"},
+    {t:"受注率", sub:"提案 → 受注", v:rate(c.order,c.prop), c:"--order"},
+    {t:"来場受注率", sub:"来場 → 受注", v:rate(c.order,c.visit), c:"--visit"},
+  ];
+  const dim = DIMS.find(d=>d.key===S.dim);
+  let cats = dim.values().map(v=>({v, c:counts(list.filter(e=>(e[dim.key]||"未選択")===v))}));
+  if (S.dim==="rtype" || S.dim==="car") cats = cats.filter(x=>x.c.visit+x.c.appr+x.c.prop+x.c.order>0);
+  const tRow = (lab, cc, cls) => `<tr class="${cls||""}"><td>${esc(lab)}</td>${KPIS.map(k=>`<td class="n">${cc[k.k]}</td>`).join("")}
+    <td class="n">${fmtRate(rate(cc.appr,cc.visit))}%</td><td class="n">${fmtRate(rate(cc.prop,cc.appr))}%</td><td class="n">${fmtRate(rate(cc.order,cc.prop))}%</td></tr>`;
+  const head = `<thead><tr><th>${esc(dim.label)}</th>${KPIS.map(k=>`<th>${k.label}</th>`).join("")}<th>アプローチ率</th><th>提案率</th><th>受注率</th></tr></thead>`;
+  const staffTable = (S.manager && S.scope==="all") ? `<section class="card"><h2>担当者別 <small>${rangeLabel(S.mode,S.anchor)}</small></h2>
+    <div class="tbl-wrap"><table><thead><tr><th>担当</th>${KPIS.map(k=>`<th>${k.label}</th>`).join("")}<th>アプローチ率</th><th>提案率</th><th>受注率</th></tr></thead><tbody>
+    ${S.staff.map(s=>{ const r=range(S.mode,S.anchor); return tRow(s.name, counts((S.entries[s.key]||[]).filter(e=>e.d>=r.s&&e.d<=r.e))); }).join("") || `<tr><td colspan="8">担当者が登録されていません</td></tr>`}
+    ${S.staff.length?tRow("合計", c, "total"):""}</tbody></table></div></section>` : "";
+  const scopeName = S.manager ? (S.scope==="all" ? "全員" : staffName(S.scope)) : S.session.name;
+  return `
+  <section class="card">
+    <div class="period">
+      <div class="seg"><button data-mode="month" aria-pressed="${S.mode==="month"}">月間</button><button data-mode="week" aria-pressed="${S.mode==="week"}">週間</button></div>
+      <button class="nav-arr" data-shift="-1" aria-label="前へ">‹</button>
+      <span class="lab">${rangeLabel(S.mode,S.anchor)}</span>
+      <button class="nav-arr" data-shift="1" aria-label="次へ">›</button>
+      <button class="mini" data-shift="0">今${S.mode==="month"?"月":"週"}</button>
+      <span class="sub" style="margin-left:auto">${esc(scopeName)}</span>
+    </div>
+    <div class="tiles" style="margin-top:14px">
+      ${KPIS.map(k=>`<div class="tile" style="--c:var(${k.c});--soft:var(${k.s})"><div class="t">${k.label}数</div><div class="v num">${c[k.k]}<small>人</small></div>${k.k==="visit"?`<div class="sub">延べ来場 ${list.length}件</div>`:""}</div>`).join("")}
+    </div>
+    <div class="rates">
+      ${rates.map(r=>`<div class="rate" style="--c:var(${r.c})"><div class="t">${r.t}<br>${r.sub}</div><div class="v num">${fmtRate(r.v)}<small>%</small></div><div class="bar-meter"><i style="width:${Math.min(100,r.v||0)}%"></i></div></div>`).join("")}
+    </div>
+    <div class="note"><b>数え方（ユニーク数）</b>
+      <span>期間中に何回来場しても、同じお客様は <b>1人</b> として数えます（例：9/3と9/20に来場したAさん → 来場数1人）。延べ回数はタイル内の「延べ来場」に出ます。</span>
+      <span>アプローチ・提案・受注も、そのお客様が期間中に一番進んだ段階で1人と数えます。受注したお客様は提案・アプローチにも含まれます。</span>
+      <span>同じお客様かどうかは顧客名で判定します（空白と「様」は無視）。名前の表記はそろえて入力してください。</span>
+      <span>提案中の HOT：${hot}件 ・ 次回アポあり：${apo}件</span></div>
+  </section>
+  ${staffTable}
+  <div class="grid2">
+    <section class="card"><h2>KPIファネル</h2><div class="chartbox" style="height:240px"><canvas id="chFunnel" aria-label="KPIファネル"></canvas></div></section>
+    <section class="card"><h2>日別推移</h2><div class="chartbox" style="height:240px"><canvas id="chTrend" aria-label="日別推移"></canvas></div></section>
+  </div>
+  <section class="card">
+    <h2>内訳</h2>
+    <div class="chips" style="margin-bottom:12px">${DIMS.map(d=>`<button type="button" class="chip" data-dim="${d.key}" aria-pressed="${S.dim===d.key}">${d.label}</button>`).join("")}</div>
+    ${cats.length ? `<div class="chartbox" style="height:${Math.max(200, cats.length*54+60)}px"><canvas id="chDim" aria-label="${esc(dim.label)}の内訳"></canvas></div>` : `<div class="empty">この期間のデータはまだありません。</div>`}
+    <div class="tbl-wrap"><table>${head}<tbody>${cats.map(x=>tRow(x.v, x.c)).join("")}${tRow("合計", c, "total")}</tbody></table></div>
+  </section>
+  ${orderCard(list)}`;
+}
+function orderCard(list){
+  const orders = list.filter(e=>e.k==="order"), n = orders.length;
+  if (!n) return `<section class="card"><h2>受注の内訳 <small>受注車種・付帯項目</small></h2><div class="empty">この期間の受注はまだありません。</div></section>`;
+  const byCar = {}; orders.forEach(e=>{ const c=e.ocar||"未選択"; byCar[c]=(byCar[c]||0)+1; });
+  const cars = Object.entries(byCar).sort((a,b)=>b[1]-a[1]);
+  const meter = (v, c) => `<div class="bar-meter" style="--c:var(${c});width:120px;display:inline-block;vertical-align:middle;margin:0 0 0 8px"><i style="width:${Math.round(v/n*100)}%"></i></div>`;
+  return `<section class="card"><h2>受注の内訳 <small>受注 ${n}件（延べ）</small></h2>
+    <div class="grid2">
+      <div class="tbl-wrap" style="margin:0"><table style="min-width:280px"><thead><tr><th>受注車種</th><th>件数</th><th>構成比</th></tr></thead><tbody>
+        ${cars.map(([c,v])=>`<tr><td>${esc(c)}</td><td class="n">${v}</td><td class="n">${(v/n*100).toFixed(1)}%${meter(v,"--order")}</td></tr>`).join("")}</tbody></table></div>
+      <div class="tbl-wrap" style="margin:0"><table style="min-width:280px"><thead><tr><th>付帯項目</th><th>件数</th><th>付帯率</th></tr></thead><tbody>
+        ${OPTS.map(o=>{ const v=orders.filter(e=>(e.opts||[]).includes(o)).length; return `<tr><td>${esc(o)}</td><td class="n">${v}</td><td class="n">${(v/n*100).toFixed(1)}%${meter(v,"--appr")}</td></tr>`; }).join("")}</tbody></table></div>
+    </div>
+    <div class="sub" style="margin-top:8px">付帯率＝その項目が付いた受注件数 ÷ 受注件数</div>
+  </section>`;
+}
+function destroyCharts(){ S.charts.forEach(ch=>{ try{ch.destroy();}catch{} }); S.charts=[]; }
+function drawCharts(){
+  if (typeof Chart === "undefined") return;
+  const ink = css("--ink"), muted = css("--muted"), line = css("--line");
+  Chart.defaults.font.family = css("--f-body"); Chart.defaults.color = muted;
+  const grid = {color: line}, colors = KPIS.map(k=>css(k.c));
+  const list = periodEntries(), c = counts(list), r = range(S.mode, S.anchor);
+  const tip = {backgroundColor: ink, titleColor: css("--surface"), bodyColor: css("--surface")};
+  const f = $("#chFunnel");
+  if (f) S.charts.push(new Chart(f, {type:"bar",
+    data:{labels:KPIS.map(k=>k.label), datasets:[{data:KPIS.map(k=>c[k.k]), backgroundColor:colors, borderRadius:6, barPercentage:.75}]},
+    options:{indexAxis:"y", maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:tip},
+      scales:{x:{beginAtZero:true, ticks:{precision:0}, grid}, y:{grid:{display:false}, ticks:{color:ink, font:{weight:"bold", size:13}}}}}}));
+  const t = $("#chTrend");
+  if (t){
+    const days = [...Array(r.days)].map((_,i)=>{ const d=new Date(r.start); d.setDate(d.getDate()+i); return ymd(d); });
+    const labels = days.map(d=> S.mode==="week" ? md(d) : String(parse(d).getDate()));
+    S.charts.push(new Chart(t, {type: S.mode==="week" ? "bar" : "line",
+      data:{labels, datasets:KPIS.map((k,i)=>({label:k.label, data:days.map(d=>counts(list.filter(e=>e.d===d))[k.k]),
+        backgroundColor:colors[i], borderColor:colors[i], borderWidth:2.5, pointRadius:2.5, tension:.25, borderRadius:4}))},
+      options:{maintainAspectRatio:false, interaction:{mode:"index", intersect:false},
+        plugins:{legend:{position:"bottom", labels:{boxWidth:12, color:ink}}, tooltip:tip},
+        scales:{y:{beginAtZero:true, ticks:{precision:0}, grid}, x:{grid:{display:false}}}}}));
+  }
+  const dm = $("#chDim");
+  if (dm){
+    const dim = DIMS.find(d=>d.key===S.dim);
+    let cats = dim.values().map(v=>({v, c:counts(list.filter(e=>(e[dim.key]||"未選択")===v))}));
+    if (S.dim==="rtype" || S.dim==="car") cats = cats.filter(x=>x.c.visit+x.c.appr+x.c.prop+x.c.order>0);
+    S.charts.push(new Chart(dm, {type:"bar",
+      data:{labels:cats.map(x=>x.v), datasets:KPIS.map((k,i)=>({label:k.label, data:cats.map(x=>x.c[k.k]), backgroundColor:colors[i], borderRadius:4}))},
+      options:{indexAxis:"y", maintainAspectRatio:false, plugins:{legend:{position:"bottom", labels:{boxWidth:12, color:ink}}, tooltip:tip},
+        scales:{x:{beginAtZero:true, ticks:{precision:0}, grid}, y:{grid:{display:false}, ticks:{color:ink, autoSkip:false}}}}}));
+  }
+}
+
+/* ---------- events ---------- */
+const delArm = {};
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  if (b.id==="logout") return logout();
+  if (b.id==="reload"){ S.loadError=""; return loadAll(); }
+  if (b.id==="refresh") return loadAll();
+  if (b.dataset.view){ S.view=b.dataset.view; render(); window.scrollTo(0,0); return; }
+  if (b.dataset.kpi){ S.kpi=b.dataset.kpi; render(); return; }
+  if (b.dataset.qd){ const d=relDay(Number(b.dataset.qd)); S.form.d=d; S.listDate=d; render(); return; }
+  if (b.dataset.chip){ S.form[b.dataset.chip]=b.dataset.v; render(); return; }
+  if (b.dataset.multi){ const v=b.dataset.multi, o=(S.form.opts||[]).slice(); const i=o.indexOf(v); if (i<0) o.push(v); else o.splice(i,1); S.form.opts=o; render(); return; }
+  if (b.id==="save"){ b.disabled=true; await saveEntry(); b.disabled=false; return; }
+  if (b.id==="cancelEdit"){ S.editing=null; S.form={...blankForm(), d:S.form.d}; render(); return; }
+  if (b.dataset.day){ const d=parse(S.listDate); d.setDate(d.getDate()+Number(b.dataset.day)); S.listDate=ymd(d); S.form.d=S.listDate; render(); return; }
+  if (b.dataset.mode){ S.mode=b.dataset.mode; render(); return; }
+  if (b.dataset.shift){ S.anchor = b.dataset.shift==="0" ? today() : shift(S.mode, S.anchor, Number(b.dataset.shift)); render(); return; }
+  if (b.dataset.dim){ S.dim=b.dataset.dim; render(); return; }
+  if (b.dataset.pf){ S.prospFilter=b.dataset.pf; render(); return; }
+  if (S.manager) return;
+  const key = S.session.key, mine = S.entries[key]||[];
+  if (b.dataset.edit){ const e=mine.find(x=>x.id===b.dataset.edit); if (!e) return;
+    S.editing=e.id; S.kpi=e.k; S.form={d:e.d, rsv:e.rsv, name:e.name, cls:e.cls, rtype:e.rtype||"", car:e.car||"", test:e.test, apo:e.apo||"なし", hot:!!e.hot, ocar:e.ocar||"", opts:(e.opts||[]).slice(), memo:e.memo||""}; render(); window.scrollTo({top:0, behavior:"smooth"}); return; }
+  if (b.dataset.hot){ const e=mine.find(x=>x.id===b.dataset.hot); if (!e) return;
+    await write(()=>eCol(key).doc(e.id).update({hot:!e.hot})); toast(!e.hot?"HOTにしました（見込みリストに追加）":"HOTを外しました"); return; }
+  if (b.dataset.promote){ const e=mine.find(x=>x.id===b.dataset.promote); if (!e) return;
+    const to=b.dataset.to;
+    if (to==="order"){ S.editing=e.id; S.kpi="order"; S.form={d:e.d, rsv:e.rsv, name:e.name, cls:e.cls, rtype:e.rtype||"", car:e.car||"", test:e.test, apo:e.apo||"なし", hot:!!e.hot, ocar:e.ocar||"", opts:(e.opts||[]).slice(), memo:e.memo||""};
+      render(); window.scrollTo({top:0, behavior:"smooth"}); toast("受注車種と付帯項目を選んで「更新する」を押してください"); return; } const ok = await write(()=>eCol(key).doc(e.id).update(to==="order" ? {k:to, pst:"受注"} : {k:to}));
+    if (ok) toast(e.name+" を「"+STAGE[to].label+"」に変更しました"); return; }
+  if (b.dataset.del || b.dataset.pdel){
+    const id=b.dataset.del||b.dataset.pdel;
+    if (!delArm[id]){ delArm[id]=true; b.classList.add("arm"); b.textContent="もう一度で削除"; setTimeout(()=>{ delArm[id]=false; if (b.isConnected){ b.classList.remove("arm"); b.textContent="削除"; } }, 3000); return; }
+    delArm[id]=false;
+    const ok = await write(()=> b.dataset.del ? eCol(key).doc(id).delete() : pCol(key).doc(id).delete());
+    if (ok){ if (S.editing===id){ S.editing=null; S.form=blankForm(); } toast("削除しました"); } return; }
+  if (b.id==="padd"){
+    const name=$("#pn").value.trim(); if (!name){ toast("顧客名を入力してください"); $("#pn").focus(); return; }
+    const ok = await write(()=>pCol(key).add({name, plan:$("#pp").value, rtype:$("#pr").value, car:$("#pc").value, memo:$("#pm").value.trim(), pst:"見込み", d:today(), ts:Date.now()}));
+    if (ok){ S.pform={pn:"",pp:"",pr:"",pc:"",pm:""}; toast("見込みリストに追加しました"); render(); } return; }
+});
+document.addEventListener("input", ev => {
+  const el = ev.target;
+  if (el.id==="fn") S.form.name = el.value;   // no re-render while typing
+  if (el.id==="fmemo") S.form.memo = el.value;
+  if (el.id in S.pform) S.pform[el.id] = el.value;
+});
+document.addEventListener("change", async ev => {
+  const el = ev.target;
+  if (el.id in S.pform){ S.pform[el.id] = el.value; return; }
+  if (el.id==="scope"){ S.scope=el.value; render(); return; }
+  if (el.id==="ld"){ if (el.value){ S.listDate=el.value; S.form.d=el.value; render(); } return; }
+  if (el.dataset.field){
+    const f = el.dataset.field;
+    S.form[f] = el.type==="checkbox" ? el.checked : el.value;
+    if (f==="d" && el.value){ S.listDate = el.value; render(); }
+    return;
+  }
+  if (S.manager) return;
+  const key = S.session.key;
+  if (el.dataset.pst){ const auto = el.dataset.src==="auto", col = auto ? eCol(key) : pCol(key);
+    const patch = auto ? {pst:el.value, k: el.value==="受注" ? "order" : "prop"} : {pst:el.value};
+    if (await write(()=>col.doc(el.dataset.pst).update(patch))) toast("状態を「"+el.value+"」にしました"); return; }
+  if (el.dataset.plan!==undefined && el.dataset.plan){ const col = el.dataset.src==="auto" ? eCol(key) : pCol(key);
+    if (await write(()=>col.doc(el.dataset.plan).update({plan:el.value}))) toast("来場予定日を保存しました"); return; }
+});
+document.addEventListener("keydown", ev => { if (ev.key==="Enter" && ev.target.id==="fn"){ ev.preventDefault(); ev.target.blur(); } });
+
+/* ---------- boot ---------- */
+const sess = store.get("hcs_session");
+if (sess && sess.token) startSession(sess, true); else renderLogin();
+})();
+</script>
+</body>
+</html>
