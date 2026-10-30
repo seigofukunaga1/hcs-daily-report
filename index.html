@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Barlow+Condensed:wght@600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-/* Layout: navy app bar, one input card with tap-chips, bottom 3-button nav (入力・見込み・分析). KPI colors are fixed semantics. */
+/* Layout: navy app bar, one input card with tap-chips, tab nav (入力・見込み・履歴・分析), customer sheet overlay. KPI colors are fixed semantics. */
 :root{
   --bg:#EDF1F7; --surface:#FFFFFF; --surface2:#F5F8FC; --ink:#0F1B2D; --muted:#56667D; --line:#D3DCE8;
   --brand:#0B3D91; --brand-ink:#FFFFFF;
@@ -173,12 +173,52 @@ textarea.in{min-height:110px;resize:vertical;line-height:1.6}
 .daysum{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
 .daysum>span{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--c);border-radius:8px;padding:2px 10px;color:var(--c);font-size:12px}
 .daysum .num{font-size:20px;color:var(--ink)}
+
+/* clickable rows / tiles (open customer list or history) */
+.rowbtn{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.rowbtn:hover{background:var(--surface2)}
+.rowbtn .main,.rowbtn .nm{display:block}
+.rowbtn .chev{font-size:22px;color:var(--muted);font-weight:900;margin-left:auto}
+.memo.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+button.tile{text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%}
+button.tile:hover{filter:brightness(.97)}
+button.tile>span{display:block}
+.tile .go{font-size:11px;color:var(--c);font-weight:700;margin-top:4px}
+tr[data-dv],tr[data-ds],tr[data-oc],tr[data-oo]{cursor:pointer}
+tr[data-dv]:hover td,tr[data-ds]:hover td,tr[data-oc]:hover td,tr[data-oo]:hover td{background:var(--visit-soft)}
+.hint{font-weight:500;color:var(--muted);font-size:12px}
+
+/* history filters */
+.hfil{display:grid;gap:14px}
+.hfil .row2{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 16px}
+@media (max-width:640px){.hfil .row2{grid-template-columns:1fr}}
+.hfil .chip{min-height:38px;padding:6px 14px}
+.hfil .seg{justify-self:start}
+.hres-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+
+/* sheet (customer list / customer history) */
+.sheet-bg{position:fixed;inset:0;z-index:40;background:rgba(8,16,32,.5);display:flex;justify-content:center;align-items:flex-end}
+.sheet{background:var(--bg);width:100%;max-width:780px;max-height:92vh;display:flex;flex-direction:column;border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.3)}
+@media (min-width:821px){.sheet-bg{align-items:center}.sheet{border-radius:16px;max-height:88vh}}
+.sheet-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface);border-radius:inherit;border-bottom-left-radius:0;border-bottom-right-radius:0}
+.sheet-head h2{flex:1;margin:0;font-size:17px;font-weight:900;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet-body{overflow:auto;padding:14px 16px calc(24px + env(safe-area-inset-bottom,0px));display:grid;gap:10px;align-content:start}
+.sheet .kpis .kbtn{padding:8px 4px}
+.cstats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.cstat{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;min-width:0}
+.cstat .t{font-size:11px;color:var(--muted);font-weight:700}
+.cstat .v{font-size:17px;font-weight:900}
+@media (max-width:520px){.cstats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tl .when{font-family:var(--f-num);font-size:18px;font-weight:700;margin-right:4px}
+.tl .memo{background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:6px;font-size:14px}
+@media (max-width:420px){.tabbar{gap:2px;padding:4px 8px}.tabbar button{flex-direction:column;gap:1px;font-size:12px;padding:5px 2px}}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
 
 <div id="app"></div>
+<div id="sheet" class="sheet-bg" hidden></div>
 <div id="toast" class="toast" hidden></div>
 
 <script>
@@ -225,6 +265,8 @@ const parse = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y
 const today = () => ymd(new Date());
 const WD = ["日","月","火","水","木","金","土"];
 const md = s => { const d = parse(s); return (d.getMonth()+1)+"/"+d.getDate()+"("+WD[d.getDay()]+")"; };
+/* 今年以外は年も付ける（履歴は年をまたぐため） */
+const mdy = s => { if (!s) return "—"; const y = parse(s).getFullYear(); return (y !== new Date().getFullYear() ? y+"/" : "") + md(s); };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const rate = (a,b) => b ? (a/b*100) : null;
 const fmtRate = r => r == null ? "—" : r.toFixed(1);
@@ -263,7 +305,22 @@ const S = {
   entries:{}, prosp:{},    // key -> array of {id,...}
   subs:[], prospFilter:"open", charts:[],
   pform:{pn:"",pp:"",pr:"",pc:"",pm:""},
+  hist:null,               // 履歴の抽出条件
+  sheet:[],                // 重ねて開く画面（お客様一覧・接触履歴）。末尾が表示中
 };
+const HIST_LIMIT = 100;
+const HPRESETS = [["month","今月"],["lmonth","先月"],["week","今週"],["lweek","先週"],["3m","過去3ヵ月"],["year","今年"],["all","全期間"]];
+function presetRange(p){
+  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
+  if (p==="month")  return [ymd(new Date(y,m,1)), ymd(new Date(y,m+1,0))];
+  if (p==="lmonth") return [ymd(new Date(y,m-1,1)), ymd(new Date(y,m,0))];
+  if (p==="week")  { const r = range("week", today()); return [r.s, r.e]; }
+  if (p==="lweek") { const r = range("week", shift("week", today(), -1)); return [r.s, r.e]; }
+  if (p==="3m")     return [ymd(new Date(y,m-2,1)), ymd(new Date(y,m+1,0))];
+  if (p==="year")   return [y+"-01-01", y+"-12-31"];
+  return ["", ""];
+}
+S.hist = {preset:"month", from:presetRange("month")[0], to:presetRange("month")[1], stage:"", rtype:"", cls:"", q:"", unit:"cust", limit:HIST_LIMIT};
 /* 画面を開いたまま日付・月が変わったら、今日・今月の表示に切り替える */
 let lastDay = today();
 function syncToday(){
@@ -272,6 +329,7 @@ function syncToday(){
   if (S.listDate === was) S.listDate = t;
   if (S.form && S.form.d === was && !S.editing) S.form.d = t;
   const r = range(S.mode, S.anchor); if (was >= r.s && was <= r.e) S.anchor = t;
+  if (S.hist.preset !== "custom") [S.hist.from, S.hist.to] = presetRange(S.hist.preset);
   if (S.session && S.loaded) render();
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) syncToday(); });
@@ -396,7 +454,7 @@ function startSession(sess, remember){
   if (remember !== false) store.set("hcs_session", sess);
   loadAll();
 }
-function logout(){ S.session=null; S.staff=[]; S.entries={}; S.prosp={}; S.loaded=false; store.del("hcs_session"); destroyCharts(); renderLogin(); }
+function logout(){ S.session=null; S.staff=[]; S.entries={}; S.prosp={}; S.loaded=false; S.sheet=[]; store.del("hcs_session"); destroyCharts(); renderSheet(); renderLogin(); }
 
 /* ---------- お試しモード（サーバーなしでブラウザ内に保存） ---------- */
 function mockApi(req){
@@ -431,11 +489,12 @@ const ICON = {
   input:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20h16M6 16l9.5-9.5a2.1 2.1 0 0 1 3 3L9 19H6z"/></svg>',
   prospect:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z"/></svg>',
   report:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  history:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5M12 7.5V12l3 2"/></svg>',
 };
 function render(){
   if (!S.session){ renderLogin(); return; }
   const active = document.activeElement && document.activeElement.id;
-  const views = S.manager ? [["prospect","見込み"],["report","分析"]] : [["input","入力"],["prospect","見込み"],["report","分析"]];
+  const views = S.manager ? [["prospect","見込み"],["history","履歴"],["report","分析"]] : [["input","入力"],["prospect","見込み"],["history","履歴"],["report","分析"]];
   const staffSel = S.manager ? `<select id="scope" aria-label="表示する担当">
       <option value="all"${S.scope==="all"?" selected":""}>全員（${S.staff.length}名）</option>
       ${S.staff.map(s=>`<option value="${s.key}"${S.scope===s.key?" selected":""}>${esc(s.name)}</option>`).join("")}
@@ -443,6 +502,7 @@ function render(){
   let body = "";
   if (S.view==="input") body = viewInput();
   else if (S.view==="prospect") body = viewProspect();
+  else if (S.view==="history") body = viewHistory();
   else body = viewReport();
   destroyCharts();
   $("#app").innerHTML = `
@@ -456,6 +516,7 @@ function render(){
 `;
   if (S.view==="report" && S.loaded) drawCharts();
   if (active){ const el=document.getElementById(active); if (el && el.tagName==="INPUT" && el.type==="text"){ el.focus(); const v=el.value; el.setSelectionRange(v.length,v.length);} }
+  renderSheet();
 }
 
 /* ---------- INPUT view ---------- */
@@ -482,6 +543,7 @@ function viewInput(){
       <div class="ops">
         ${e.k==="prop"?`<button class="mini hott" data-hot="${e.id}" aria-pressed="${!!e.hot}">HOT</button>`:""}
         ${n?`<button class="mini go" style="--c:var(${STAGE[n].c})" data-promote="${e.id}" data-to="${n}">→${STAGE[n].short}に変更</button>`:""}
+        <button class="mini" data-cust="${esc(custId(e))}">履歴</button>
         <button class="mini" data-edit="${e.id}">編集</button>
         <button class="mini del" data-del="${e.id}">削除</button>
       </div></div>`;
@@ -557,11 +619,11 @@ function viewProspect(){
   const propRows = monthProps.map(e=>`<div class="row" style="--c:var(--prop)">
       <div class="main"><div class="nm">${esc(e.name)} ${e.k==="order"?'<span class="tag" style="--c:var(--order)">受注</span>':""} ${e.hot?'<span class="tag hot">HOT</span>':""}</div>
       <div class="meta"><span>${md(e.d)}</span><span>${esc(e.rtype||"区分未選択")}</span><span>既納:${esc(e.car||"未選択")}</span><span>${esc(e.cls)}</span>${showStaff?`<span>担当:${esc(staffName(e._k))}</span>`:""}</div>${e.memo?`<div class="memo">${esc(e.memo)}</div>`:""}</div>
-      <div class="ops">${ro||e.k==="order"?"":`<button class="mini hott" data-hot="${e.id}" aria-pressed="${!!e.hot}">HOT</button>`}</div></div>`).join("");
+      <div class="ops"><button class="mini" data-cust="${esc(custId(e))}">履歴</button>${ro||e.k==="order"?"":`<button class="mini hott" data-hot="${e.id}" aria-pressed="${!!e.hot}">HOT</button>`}</div></div>`).join("");
   const prosRows = pros.map(p=>`<div class="row" style="--c:var(${p.src==="auto"?"--prop":"--visit"})">
       <div class="main"><div class="nm">${esc(p.name)} <span class="tag" style="--c:var(${p.src==="auto"?"--prop":"--visit"})">${p.src==="auto"?"来場提案":"手入力"}</span></div>
       <div class="meta"><span>${esc(p.rtype||"区分未選択")}</span>${p.car?`<span>${esc(p.car)}</span>`:""}<span>登録 ${p.d?md(p.d):"—"}</span>${showStaff?`<span>担当:${esc(staffName(p._k))}</span>`:""}</div>${p.memo?`<div class="memo">${esc(p.memo)}</div>`:""}</div>
-      <div class="ops">${planIn(p)}${stSel(p)}${!ro&&p.src==="manual"?`<button class="mini del" data-pdel="${p.id}">削除</button>`:""}</div></div>`).join("");
+      <div class="ops"><button class="mini" data-cust="${esc(custId(p))}">履歴</button>${planIn(p)}${stSel(p)}${!ro&&p.src==="manual"?`<button class="mini del" data-pdel="${p.id}">削除</button>`:""}</div></div>`).join("");
   const openCount = auto.concat(man).filter(p=>(p.pst||"見込み")==="見込み").length;
   return `
   ${ro?"":`<section class="card">
@@ -611,14 +673,13 @@ function viewReport(){
   const dim = DIMS.find(d=>d.key===S.dim);
   let cats = dim.values().map(v=>({v, c:counts(list.filter(e=>(e[dim.key]||"未選択")===v))}));
   if (S.dim==="rtype" || S.dim==="car") cats = cats.filter(x=>x.c.visit+x.c.appr+x.c.prop+x.c.order>0);
-  const tRow = (lab, cc, cls) => `<tr class="${cls||""}"><td>${esc(lab)}</td>${KPIS.map(k=>`<td class="n">${cc[k.k]}</td>`).join("")}
+  const tRow = (lab, cc, cls, attr) => `<tr class="${cls||""}" ${attr||""} tabindex="0"><td>${esc(lab)}</td>${KPIS.map(k=>`<td class="n">${cc[k.k]}</td>`).join("")}
     <td class="n">${fmtRate(rate(cc.appr,cc.visit))}%</td><td class="n">${fmtRate(rate(cc.prop,cc.appr))}%</td><td class="n">${fmtRate(rate(cc.order,cc.prop))}%</td></tr>`;
   const head = `<thead><tr><th>${esc(dim.label)}</th>${KPIS.map(k=>`<th>${k.label}</th>`).join("")}<th>アプローチ率</th><th>提案率</th><th>受注率</th></tr></thead>`;
-  const staffTable = (S.manager && S.scope==="all") ? `<section class="card"><h2>担当者別 <small>${rangeLabel(S.mode,S.anchor)}</small></h2>
+  const staffTable = (S.manager && S.scope==="all") ? `<section class="card"><h2>担当者別 <small>${rangeLabel(S.mode,S.anchor)} ・ 行を押すとお客様の一覧</small></h2>
     <div class="tbl-wrap"><table><thead><tr><th>担当</th>${KPIS.map(k=>`<th>${k.label}</th>`).join("")}<th>アプローチ率</th><th>提案率</th><th>受注率</th></tr></thead><tbody>
-    ${S.staff.map(s=>{ const r=range(S.mode,S.anchor); return tRow(s.name, counts((S.entries[s.key]||[]).filter(e=>e.d>=r.s&&e.d<=r.e))); }).join("") || `<tr><td colspan="8">担当者が登録されていません</td></tr>`}
-    ${S.staff.length?tRow("合計", c, "total"):""}</tbody></table></div></section>` : "";
-  const scopeName = S.manager ? (S.scope==="all" ? "全員" : staffName(S.scope)) : S.session.name;
+    ${S.staff.map(s=>{ const r=range(S.mode,S.anchor); return tRow(s.name, counts((S.entries[s.key]||[]).filter(e=>e.d>=r.s&&e.d<=r.e)), "", `data-ds="${esc(s.key)}"`); }).join("") || `<tr><td colspan="8">担当者が登録されていません</td></tr>`}
+    ${S.staff.length?tRow("合計", c, "total", 'data-dv="*"'):""}</tbody></table></div></section>` : "";
   return `
   <section class="card">
     <div class="period">
@@ -627,10 +688,10 @@ function viewReport(){
       <span class="lab">${rangeLabel(S.mode,S.anchor)}</span>
       <button class="nav-arr" data-shift="1" aria-label="次へ">›</button>
       <button class="mini" data-shift="0">今${S.mode==="month"?"月":"週"}</button>
-      <span class="sub" style="margin-left:auto">${esc(scopeName)}</span>
+      <span class="sub" style="margin-left:auto">${esc(scopeName())}</span>
     </div>
     <div class="tiles" style="margin-top:14px">
-      ${KPIS.map(k=>`<div class="tile" style="--c:var(${k.c});--soft:var(${k.s})"><div class="t">${k.label}数</div><div class="v num">${c[k.k]}<small>人</small></div>${k.k==="visit"?`<div class="sub">延べ来場 ${list.length}件</div>`:""}</div>`).join("")}
+      ${KPIS.map(k=>`<button type="button" class="tile" data-dk="${k.k}" style="--c:var(${k.c});--soft:var(${k.s})"><span class="t">${k.label}数</span><span class="v num">${c[k.k]}<small>人</small></span>${k.k==="visit"?`<span class="sub">延べ来場 ${list.length}件</span>`:""}<span class="go">お客様を見る ›</span></button>`).join("")}
     </div>
     <div class="rates">
       ${rates.map(r=>`<div class="rate" style="--c:var(${r.c})"><div class="t">${r.t}<br>${r.sub}</div><div class="v num">${fmtRate(r.v)}<small>%</small></div><div class="bar-meter"><i style="width:${Math.min(100,r.v||0)}%"></i></div></div>`).join("")}
@@ -643,14 +704,14 @@ function viewReport(){
   </section>
   ${staffTable}
   <div class="grid2">
-    <section class="card"><h2>KPIファネル</h2><div class="chartbox" style="height:240px"><canvas id="chFunnel" aria-label="KPIファネル"></canvas></div></section>
-    <section class="card"><h2>日別推移</h2><div class="chartbox" style="height:240px"><canvas id="chTrend" aria-label="日別推移"></canvas></div></section>
+    <section class="card"><h2>KPIファネル <span class="hint">棒を押すとお客様の一覧</span></h2><div class="chartbox" style="height:240px"><canvas id="chFunnel" aria-label="KPIファネル"></canvas></div></section>
+    <section class="card"><h2>日別推移 <span class="hint">日付を押すとその日のお客様</span></h2><div class="chartbox" style="height:240px"><canvas id="chTrend" aria-label="日別推移"></canvas></div></section>
   </div>
   <section class="card">
-    <h2>内訳</h2>
+    <h2>内訳 <span class="hint">棒・表の行を押すとお客様の一覧</span></h2>
     <div class="chips" style="margin-bottom:12px">${DIMS.map(d=>`<button type="button" class="chip" data-dim="${d.key}" aria-pressed="${S.dim===d.key}">${d.label}</button>`).join("")}</div>
     ${cats.length ? `<div class="chartbox" style="height:${Math.max(200, cats.length*54+60)}px"><canvas id="chDim" aria-label="${esc(dim.label)}の内訳"></canvas></div>` : `<div class="empty">この期間のデータはまだありません。</div>`}
-    <div class="tbl-wrap"><table>${head}<tbody>${cats.map(x=>tRow(x.v, x.c)).join("")}${tRow("合計", c, "total")}</tbody></table></div>
+    <div class="tbl-wrap"><table>${head}<tbody>${cats.map(x=>tRow(x.v, x.c, "", `data-dv="${esc(x.v)}"`)).join("")}${tRow("合計", c, "total", 'data-dv="*"')}</tbody></table></div>
   </section>
   ${orderCard(list)}`;
 }
@@ -660,12 +721,12 @@ function orderCard(list){
   const byCar = {}; orders.forEach(e=>{ const c=e.ocar||"未選択"; byCar[c]=(byCar[c]||0)+1; });
   const cars = Object.entries(byCar).sort((a,b)=>b[1]-a[1]);
   const meter = (v, c) => `<div class="bar-meter" style="--c:var(${c});width:120px;display:inline-block;vertical-align:middle;margin:0 0 0 8px"><i style="width:${Math.round(v/n*100)}%"></i></div>`;
-  return `<section class="card"><h2>受注の内訳 <small>受注 ${n}件（延べ）</small></h2>
+  return `<section class="card"><h2>受注の内訳 <small>受注 ${n}件（延べ） ・ 行を押すとお客様の一覧</small></h2>
     <div class="grid2">
       <div class="tbl-wrap" style="margin:0"><table style="min-width:280px"><thead><tr><th>受注車種</th><th>件数</th><th>構成比</th></tr></thead><tbody>
-        ${cars.map(([c,v])=>`<tr><td>${esc(c)}</td><td class="n">${v}</td><td class="n">${(v/n*100).toFixed(1)}%${meter(v,"--order")}</td></tr>`).join("")}</tbody></table></div>
+        ${cars.map(([c,v])=>`<tr data-oc="${esc(c)}" tabindex="0"><td>${esc(c)}</td><td class="n">${v}</td><td class="n">${(v/n*100).toFixed(1)}%${meter(v,"--order")}</td></tr>`).join("")}</tbody></table></div>
       <div class="tbl-wrap" style="margin:0"><table style="min-width:280px"><thead><tr><th>付帯項目</th><th>件数</th><th>付帯率</th></tr></thead><tbody>
-        ${OPTS.map(o=>{ const v=orders.filter(e=>(e.opts||[]).includes(o)).length; return `<tr><td>${esc(o)}</td><td class="n">${v}</td><td class="n">${(v/n*100).toFixed(1)}%${meter(v,"--appr")}</td></tr>`; }).join("")}</tbody></table></div>
+        ${OPTS.map(o=>{ const v=orders.filter(e=>(e.opts||[]).includes(o)).length; return `<tr data-oo="${esc(o)}" tabindex="0"><td>${esc(o)}</td><td class="n">${v}</td><td class="n">${(v/n*100).toFixed(1)}%${meter(v,"--appr")}</td></tr>`; }).join("")}</tbody></table></div>
     </div>
     <div class="sub" style="margin-top:8px">付帯率＝その項目が付いた受注件数 ÷ 受注件数</div>
   </section>`;
@@ -677,11 +738,14 @@ function drawCharts(){
   Chart.defaults.font.family = css("--f-body"); Chart.defaults.color = muted;
   const grid = {color: line}, colors = KPIS.map(k=>css(k.c));
   const list = periodEntries(), c = counts(list), r = range(S.mode, S.anchor);
-  const tip = {backgroundColor: ink, titleColor: css("--surface"), bodyColor: css("--surface")};
+  const tip = {backgroundColor: ink, titleColor: css("--surface"), bodyColor: css("--surface"), footerColor: css("--surface"),
+    footerFont:{weight:"normal"}, callbacks:{footer:()=>"押すとお客様の一覧"}};
+  const onHover = (e, els) => { if (e.native) e.native.target.style.cursor = els.length ? "pointer" : "default"; };
   const f = $("#chFunnel");
   if (f) S.charts.push(new Chart(f, {type:"bar",
     data:{labels:KPIS.map(k=>k.label), datasets:[{data:KPIS.map(k=>c[k.k]), backgroundColor:colors, borderRadius:6, barPercentage:.75}]},
-    options:{indexAxis:"y", maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:tip},
+    options:{indexAxis:"y", maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:tip}, onHover,
+      onClick:(e, els) => { if (els.length) openDrill("期間中のお客様", periodPick(), KPIS[els[0].index].k); },
       scales:{x:{beginAtZero:true, ticks:{precision:0}, grid}, y:{grid:{display:false}, ticks:{color:ink, font:{weight:"bold", size:13}}}}}}));
   const t = $("#chTrend");
   if (t){
@@ -690,7 +754,12 @@ function drawCharts(){
     S.charts.push(new Chart(t, {type: S.mode==="week" ? "bar" : "line",
       data:{labels, datasets:KPIS.map((k,i)=>({label:k.label, data:days.map(d=>counts(list.filter(e=>e.d===d))[k.k]),
         backgroundColor:colors[i], borderColor:colors[i], borderWidth:2.5, pointRadius:2.5, tension:.25, borderRadius:4}))},
-      options:{maintainAspectRatio:false, interaction:{mode:"index", intersect:false},
+      options:{maintainAspectRatio:false, interaction:{mode:"index", intersect:false}, onHover,
+        // 押した日付の、一番近い線（来場・アプローチ…）を初期表示にする。0人の線なら来場
+        onClick:(e, els, chart) => { if (!els.length) return;
+          const i = els[0].index, day = days[i], near = chart.getElementsAtEventForMode(e.native, "nearest", {intersect:false}, false)[0];
+          const di = near && chart.data.datasets[near.datasetIndex].data[i] > 0 ? near.datasetIndex : 0;
+          openDrill(mdy(day)+"のお客様", periodPick(x=>x.d===day), KPIS[di].k); },
         plugins:{legend:{position:"bottom", labels:{boxWidth:12, color:ink}}, tooltip:tip},
         scales:{y:{beginAtZero:true, ticks:{precision:0}, grid}, x:{grid:{display:false}}}}}));
   }
@@ -701,15 +770,217 @@ function drawCharts(){
     if (S.dim==="rtype" || S.dim==="car") cats = cats.filter(x=>x.c.visit+x.c.appr+x.c.prop+x.c.order>0);
     S.charts.push(new Chart(dm, {type:"bar",
       data:{labels:cats.map(x=>x.v), datasets:KPIS.map((k,i)=>({label:k.label, data:cats.map(x=>x.c[k.k]), backgroundColor:colors[i], borderRadius:4}))},
-      options:{indexAxis:"y", maintainAspectRatio:false, plugins:{legend:{position:"bottom", labels:{boxWidth:12, color:ink}}, tooltip:tip},
+      options:{indexAxis:"y", maintainAspectRatio:false, plugins:{legend:{position:"bottom", labels:{boxWidth:12, color:ink}}, tooltip:tip}, onHover,
+        onClick:(e, els) => { if (!els.length) return; const v = cats[els[0].index].v;
+          openDrill(dim.label+"："+v, periodPick(x=>(x[dim.key]||"未選択")===v), KPIS[els[0].datasetIndex].k); },
         scales:{x:{beginAtZero:true, ticks:{precision:0}, grid}, y:{grid:{display:false}, ticks:{color:ink, autoSkip:false}}}}}));
   }
+}
+
+/* ---------- customers (お客様ごとのまとめ。counts() と同じく担当＋顧客名で同一人物とみなす) ---------- */
+const custId = e => (e._k||"")+"|"+normName(e.name);
+const scopeName = () => S.manager ? (S.scope==="all" ? "全員" : staffName(S.scope)) : S.session.name;
+function groupCustomers(list){
+  const m = new Map();
+  list.forEach(e=>{
+    const id = custId(e); let g = m.get(id);
+    if (!g){ g = {id, k:e._k, ents:[], best:0, hot:false, apo:false}; m.set(id, g); }
+    g.ents.push(e); g.best = Math.max(g.best, RANK[e.k] ?? 0);
+    if (e.k==="prop" && e.hot) g.hot = true;
+    if (e.apo==="あり") g.apo = true;
+  });
+  const gs = [...m.values()];
+  gs.forEach(g=>{ g.ents.sort(byNewest); g.last = g.ents[0].d; g.first = g.ents[g.ents.length-1].d; g.name = g.ents[0].name; });
+  return gs.sort((a,b)=>b.last.localeCompare(a.last) || a.name.localeCompare(b.name,"ja"));
+}
+const byNewest = (a,b) => (b.d||"").localeCompare(a.d||"") || (b.ts||0)-(a.ts||0);
+function custRow(g, showStaff, cntLabel){
+  const s = STAGES[g.best], memo = g.ents.find(e=>e.memo);
+  return `<button type="button" class="row rowbtn" style="--c:var(${s.c})" data-cust="${esc(g.id)}">
+    <span class="tag" style="--c:var(${s.c})">${s.short}</span>
+    <span class="main"><span class="nm">${esc(g.name)} ${g.hot?'<span class="tag hot">HOT</span>':""}${g.apo?' <span class="tag soft">次回アポあり</span>':""}</span>
+      <span class="meta"><span>${cntLabel} ${g.ents.length}回</span><span>最終 ${mdy(g.last)}</span>${g.ents.length>1?`<span>初回 ${mdy(g.first)}</span>`:""}${showStaff?`<span>担当:${esc(staffName(g.k))}</span>`:""}</span>
+      ${memo?`<span class="memo clamp">${esc(memo.memo)}</span>`:""}</span>
+    <span class="chev" aria-hidden="true">›</span></button>`;
+}
+function visitRow(e, showStaff){
+  const s = STAGE[e.k] || STAGE.visit;
+  return `<button type="button" class="row rowbtn" style="--c:var(${s.c})" data-cust="${esc(custId(e))}">
+    <span class="tag" style="--c:var(${s.c})">${s.short}</span>
+    <span class="main"><span class="nm"><span class="num">${mdy(e.d)}</span> ${esc(e.name)} ${e.k==="prop"&&e.hot?'<span class="tag hot">HOT</span>':""}</span>
+      <span class="meta"><span>${esc(e.rtype||"区分未選択")}</span><span>${esc(e.cls)}</span><span>既納:${esc(e.car||"未選択")}</span>${e.k==="order"?`<span><b>受注:${esc(e.ocar||"未選択")}</b></span>`:""}${showStaff?`<span>担当:${esc(staffName(e._k))}</span>`:""}</span>
+      ${e.memo?`<span class="memo clamp">${esc(e.memo)}</span>`:""}</span>
+    <span class="chev" aria-hidden="true">›</span></button>`;
+}
+
+/* ---------- HISTORY view（期間・条件でお客様を抽出 → 接触履歴） ---------- */
+const normQ = s => String(s||"").normalize("NFKC").toLowerCase().replace(/[\s　]+/g,"");
+const HSTAGES = [["","すべて"],["visit","来場のみ"],["appr","アプローチ"],["prop","提案"],["order","受注"],["hot","HOT"],["apo","次回アポあり"]];
+function histEntries(){
+  const h = S.hist;
+  return allEntries().filter(e=>(!h.from || e.d>=h.from) && (!h.to || e.d<=h.to)
+    && (!h.rtype || (e.rtype||"未選択")===h.rtype) && (!h.cls || e.cls===h.cls));
+}
+/* 抽出結果。CSV にもこの結果（来場1件＝1行）を出す */
+function histData(){
+  const h = S.hist, q = normQ(h.q), list = histEntries();
+  const hit = e => !q || normQ([e.name, e.memo, e.car, e.ocar, e.rtype].join(" ")).includes(q);
+  if (h.unit==="cust"){
+    const ok = g => !h.stage || (h.stage==="hot" ? g.hot : h.stage==="apo" ? g.apo : STAGES[g.best].k===h.stage);
+    const gs = groupCustomers(list).filter(g=>(!q || g.ents.some(hit)) && ok(g));
+    return {items:gs, ents:gs.flatMap(g=>g.ents)};
+  }
+  const ok = e => !h.stage || (h.stage==="hot" ? e.k==="prop" && e.hot : h.stage==="apo" ? e.apo==="あり" : e.k===h.stage);
+  const es = list.filter(e=>hit(e) && ok(e)).sort(byNewest);
+  return {items:es, ents:es};
+}
+function histResults(){
+  const h = S.hist, {items, ents} = histData(), c = counts(ents);
+  const showStaff = S.manager && S.scope==="all";
+  const rows = items.slice(0, h.limit).map(x => h.unit==="cust" ? custRow(x, showStaff, "期間中の来場") : visitRow(x, showStaff)).join("");
+  return `<div class="hres-head"><h2 style="margin:0">抽出結果</h2>
+      <span class="sub">${h.unit==="cust" ? `お客様 ${groupCustomers(ents).length}人` : `来場 ${ents.length}件（お客様 ${groupCustomers(ents).length}人）`}</span>
+      <button class="mini" id="hcsv" style="margin-left:auto">CSVで保存</button></div>
+    <div class="daysum">${KPIS.map(k=>`<span style="--c:var(${k.c})"><b>${k.label}</b><span class="num">${c[k.k]}</span></span>`).join("")}</div>
+    <div class="list">${rows || `<div class="empty">条件に合うデータはありません。期間や条件を変えてみてください。</div>`}</div>
+    ${items.length > h.limit ? `<div class="actions"><button class="btn ghost" id="hmore" style="flex:1">さらに表示（残り ${items.length - h.limit}件）</button></div>` : ""}`;
+}
+function viewHistory(){
+  const h = S.hist;
+  const sel = (id, opts, val) => `<select class="in" id="${id}"><option value="">すべて</option>${opts.map(o=>`<option${o===val?" selected":""}>${esc(o)}</option>`).join("")}</select>`;
+  return `
+  <section class="card">
+    <h2>接触履歴 <small>期間や条件でお客様を抽出。名前を押すと、そのお客様の過去の来場と話した内容をすべて見られます</small></h2>
+    <div class="hfil">
+      <div class="field"><span class="lbl">期間</span>
+        <div class="chips">${HPRESETS.map(([k,l])=>`<button type="button" class="chip" data-hp="${k}" aria-pressed="${h.preset===k}">${l}</button>`).join("")}</div>
+        <div class="datepick"><input class="in" type="date" id="hfrom" value="${esc(h.from)}" aria-label="開始日"><span>〜</span><input class="in" type="date" id="hto" value="${esc(h.to)}" aria-label="終了日"></div></div>
+      <div class="field"><span class="lbl">結果（お客様ごとの場合は、期間中に一番進んだ段階）</span>
+        <div class="chips">${HSTAGES.map(([k,l])=>`<button type="button" class="chip" data-hs="${k}" aria-pressed="${h.stage===k}">${l}</button>`).join("")}</div></div>
+      <div class="row2">
+        <div class="field"><label for="hrtype">予約区分</label>${sel("hrtype", RTYPES.concat(["未選択"]), h.rtype)}</div>
+        <div class="field"><label for="hcls">顧客分類</label>${sel("hcls", CLS, h.cls)}</div>
+        <div class="field"><span class="lbl">表示</span><div class="seg"><button data-hu="cust" aria-pressed="${h.unit==="cust"}">お客様ごと</button><button data-hu="visit" aria-pressed="${h.unit==="visit"}">来場ごと</button></div></div>
+      </div>
+      <div class="field"><label for="hq">キーワード <span class="sub">顧客名・話した内容・車種で検索</span></label>
+        <input class="in" type="text" id="hq" value="${esc(h.q)}" placeholder="例：フリード、車検、本田" enterkeyhint="search"></div>
+    </div>
+  </section>
+  <section class="card" id="hres">${histResults()}</section>`;
+}
+function downloadCsv(){
+  const rows = histData().ents.slice().sort((a,b)=>a.d.localeCompare(b.d) || (a.ts||0)-(b.ts||0));
+  if (!rows.length){ toast("保存するデータがありません"); return; }
+  // Excel で数式として解釈されないよう、先頭が = + - @ の値には ' を付ける
+  const q = v => { let s = String(v ?? ""); if (/^[=+\-@]/.test(s)) s = "'"+s; return '"'+s.replace(/"/g,'""')+'"'; };
+  const head = ["来場日","担当","顧客名","結果","予約","顧客分類","予約区分","既納車種","試乗","次回アポ","HOT","受注車種","付帯項目","詳細（話した内容）"];
+  const lines = [head].concat(rows.map(e=>[e.d, e._k, e.name, (STAGE[e.k]||STAGE.visit).label, e.rsv, e.cls, e.rtype, e.car, e.test, e.apo,
+    e.hot?"HOT":"", e.ocar, (e.opts||[]).join("・"), e.memo])).map(r=>r.map(q).join(","));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿"+lines.join("\r\n")], {type:"text/csv"}));
+  a.download = "HCS_接触履歴_"+(S.hist.from||"最初")+"_"+(S.hist.to||"最新")+".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- sheet（お客様一覧・接触履歴を画面の上に重ねて表示） ---------- */
+function periodPick(filter){ const r = range(S.mode, S.anchor); return () => allEntries().filter(e=>e.d>=r.s && e.d<=r.e && (!filter || filter(e))); }
+function openDrill(title, pick, kpi){ openSheet({t:"drill", title, sub:rangeLabel(S.mode,S.anchor)+" ・ "+scopeName(), pick, kpi}); }
+function drillRow(ds){
+  if (ds.ds !== undefined) return openDrill("担当："+staffName(ds.ds), periodPick(e=>e._k===ds.ds), "visit");
+  if (ds.oc !== undefined) return openDrill("受注車種："+ds.oc, periodPick(e=>e.k==="order" && (e.ocar||"未選択")===ds.oc), "order");
+  if (ds.oo !== undefined) return openDrill("付帯項目："+ds.oo, periodPick(e=>e.k==="order" && (e.opts||[]).includes(ds.oo)), "order");
+  if (ds.dv === "*") return openDrill("期間中のお客様", periodPick(), "visit");
+  const dim = DIMS.find(d=>d.key===S.dim), v = ds.dv;
+  openDrill(dim.label+"："+v, periodPick(e=>(e[dim.key]||"未選択")===v), "visit");
+}
+function openSheet(item){
+  const body = $("#sheet .sheet-body"), top = S.sheet[S.sheet.length-1];
+  if (body && top) top.scroll = body.scrollTop;
+  S.sheet.push(item); renderSheet();
+}
+function closeSheet(all){ if (all) S.sheet = []; else S.sheet.pop(); renderSheet(); }
+function renderSheet(){
+  const el = $("#sheet"), top = S.sheet[S.sheet.length-1];
+  document.body.style.overflow = top && S.session ? "hidden" : "";
+  if (!top || !S.session){ el.hidden = true; el.innerHTML = ""; el._top = null; return; }
+  const body0 = el.querySelector(".sheet-body"), same = el._top === top;
+  if (body0 && same) top.scroll = body0.scrollTop;   // データ更新で描き直すときは位置を保つ
+  const v = top.t==="cust" ? viewCust(top.k, top.n) : viewDrill(top);
+  el.hidden = false;
+  el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head">${S.sheet.length>1?`<button class="mini" id="sback">‹ 戻る</button>`:""}<h2 id="sheetTitle">${v.title}</h2><button class="mini" id="sclose">閉じる ✕</button></div>
+    <div class="sheet-body">${v.body}</div></div>`;
+  el.querySelector(".sheet-body").scrollTop = top.scroll || 0;
+  if (!same) $("#sclose").focus({preventScroll:true});
+  el._top = top;
+}
+function viewDrill(d){
+  const list = d.pick(), c = counts(list);
+  const gs = groupCustomers(list).filter(g=>g.best >= RANK[d.kpi]);
+  const showStaff = S.manager && S.scope==="all";
+  return {title:esc(d.title), body:`
+    <div class="sub">${esc(d.sub)}</div>
+    <div class="kpis">${KPIS.map(k=>`<button type="button" class="kbtn" style="--c:var(${k.c})" data-dkpi="${k.k}" aria-pressed="${d.kpi===k.k}">${k.label}<span class="num">${c[k.k]}</span></button>`).join("")}</div>
+    <div class="sub">「${KMAP[d.kpi].label}」に数えたお客様 ${gs.length}人${d.kpi!=="visit"?"（その先まで進んだ方も含みます）":""} ・ 名前を押すと接触履歴</div>
+    <div class="list">${gs.map(g=>custRow(g, showStaff, "対象の来場")).join("") || `<div class="empty">該当するお客様はいません。</div>`}</div>`};
+}
+function viewCust(k, n){
+  const ents = (S.entries[k]||[]).filter(e=>normName(e.name)===n).map(e=>({...e, _k:k})).sort(byNewest);
+  const pros = (S.prosp[k]||[]).filter(p=>normName(p.name)===n);
+  if (!ents.length && !pros.length) return {title:"接触履歴", body:`<div class="empty">データが見つかりません（削除された可能性があります）。</div>`};
+  const g = ents.length ? groupCustomers(ents)[0] : null, name = g ? g.name : pros[0].name;
+  const t = today();
+  const plans = ents.filter(e=>e.hot && e.plan && (e.pst||"見込み")==="見込み").concat(pros.filter(p=>p.plan && (p.pst||"見込み")==="見込み"))
+    .map(x=>x.plan).filter(p=>p>=t).sort();
+  const own = !S.manager;
+  const stat = (lab, val) => `<div class="cstat"><div class="t">${lab}</div><div class="v">${val}</div></div>`;
+  const items = ents.map(e=>({d:e.d, ts:e.ts, html:entryItem(e, own)}))
+    .concat(pros.map(p=>({d:p.d, ts:p.ts, html:`<div class="row tl" style="--c:var(--line)"><div class="main">
+      <div class="nm"><span class="when">${mdy(p.d)}</span> <span class="tag soft">見込み手入力</span> <span class="tag soft">${esc(p.pst||"見込み")}</span></div>
+      <div class="meta">${p.plan?`<span>来場予定 ${mdy(p.plan)}</span>`:""}<span>${esc(p.rtype||"区分未選択")}</span>${p.car?`<span>既納:${esc(p.car)}</span>`:""}</div>
+      ${p.memo?`<div class="memo">${esc(p.memo)}</div>`:""}</div></div>`})))
+    .sort(byNewest);
+  return {title:esc(name), body:`
+    ${S.manager?`<div class="sub">担当：${esc(staffName(k))}</div>`:""}
+    <div class="cstats">
+      ${stat("一番進んだ段階", g ? `<span class="tag" style="--c:var(${STAGES[g.best].c})">${STAGES[g.best].label}</span>` : "—")}
+      ${stat("来場回数", g ? `<span class="num">${g.ents.length}</span> 回` : "0 回")}
+      ${stat("初回 ／ 最終来場", g ? `${mdy(g.first)}<br>${mdy(g.last)}` : "—")}
+      ${stat("次回来場予定", plans[0] ? mdy(plans[0]) : "—")}
+    </div>
+    <h2 style="margin:6px 0 0;font-size:15px">接触履歴 <small class="sub">新しい順 ・ ${items.length}件</small></h2>
+    <div class="list">${items.map(x=>x.html).join("")}</div>`};
+}
+function entryItem(e, own){
+  const s = STAGE[e.k] || STAGE.visit;
+  return `<div class="row tl" style="--c:var(${s.c})"><div class="main">
+    <div class="nm"><span class="when">${mdy(e.d)}</span> <span class="tag" style="--c:var(${s.c})">${s.label}</span>
+      ${e.k==="prop"&&e.hot?'<span class="tag hot">HOT</span>':""}${e.apo==="あり"?' <span class="tag soft">次回アポあり</span>':""}</div>
+    <div class="meta"><span>予約:${esc(e.rsv)}</span><span>${esc(e.cls)}</span><span>${esc(e.rtype||"区分未選択")}</span><span>既納:${esc(e.car||"未選択")}</span><span>試乗:${esc(e.test)}</span>
+      ${e.k==="order"?`<span><b>受注車種:${esc(e.ocar||"未選択")}</b></span><span>付帯:${esc((e.opts||[]).join("・")||"なし")}</span>`:""}
+      ${e.plan?`<span>来場予定 ${mdy(e.plan)}</span>`:""}</div>
+    ${e.memo?`<div class="memo">${esc(e.memo)}</div>`:`<div class="sub" style="margin-top:4px">話した内容の記入なし</div>`}</div>
+    ${own?`<div class="ops"><button class="mini" data-edit="${e.id}">編集</button></div>`:""}</div>`;
 }
 
 /* ---------- events ---------- */
 const delArm = {};
 document.addEventListener("click", async ev => {
+  if (ev.target.id==="sheet") return closeSheet(true);   // 背景を押したら閉じる
+  const tr = ev.target.closest("tr[data-dv],tr[data-ds],tr[data-oc],tr[data-oo]");
+  if (tr) return drillRow(tr.dataset);
   const b = ev.target.closest("button"); if (!b) return;
+  if (b.id==="sclose") return closeSheet(true);
+  if (b.id==="sback") return closeSheet();
+  if (b.dataset.cust){ const id=b.dataset.cust, i=id.indexOf("|"); return openSheet({t:"cust", k:id.slice(0,i), n:id.slice(i+1)}); }
+  if (b.dataset.dkpi){ S.sheet[S.sheet.length-1].kpi=b.dataset.dkpi; return renderSheet(); }
+  if (b.dataset.dk) return openDrill("期間中のお客様", periodPick(), b.dataset.dk);
+  if (b.dataset.hp){ const p=b.dataset.hp; S.hist.preset=p; [S.hist.from, S.hist.to]=presetRange(p); S.hist.limit=HIST_LIMIT; render(); return; }
+  if (b.dataset.hs!==undefined){ S.hist.stage=b.dataset.hs; S.hist.limit=HIST_LIMIT; render(); return; }
+  if (b.dataset.hu){ S.hist.unit=b.dataset.hu; S.hist.limit=HIST_LIMIT; render(); return; }
+  if (b.id==="hmore"){ S.hist.limit+=HIST_LIMIT; $("#hres").innerHTML=histResults(); return; }
+  if (b.id==="hcsv") return downloadCsv();
   if (b.id==="logout") return logout();
   if (b.id==="reload"){ S.loadError=""; return loadAll(); }
   if (b.id==="refresh") return loadAll();
@@ -728,6 +999,7 @@ document.addEventListener("click", async ev => {
   if (S.manager) return;
   const key = S.session.key, mine = S.entries[key]||[];
   if (b.dataset.edit){ const e=mine.find(x=>x.id===b.dataset.edit); if (!e) return;
+    S.sheet=[]; S.view="input";   // 履歴の画面から押したときも入力画面で編集する
     S.editing=e.id; S.kpi=e.k; S.form={d:e.d, rsv:e.rsv, name:e.name, cls:e.cls, rtype:e.rtype||"", car:e.car||"", test:e.test, apo:e.apo||"なし", hot:!!e.hot, ocar:e.ocar||"", opts:(e.opts||[]).slice(), memo:e.memo||""}; render(); window.scrollTo({top:0, behavior:"smooth"}); return; }
   if (b.dataset.hot){ const e=mine.find(x=>x.id===b.dataset.hot); if (!e) return;
     await write(()=>eCol(key).doc(e.id).update({hot:!e.hot})); toast(!e.hot?"HOTにしました（見込みリストに追加）":"HOTを外しました"); return; }
@@ -752,11 +1024,16 @@ document.addEventListener("input", ev => {
   if (el.id==="fn") S.form.name = el.value;   // no re-render while typing
   if (el.id==="fmemo") S.form.memo = el.value;
   if (el.id in S.pform) S.pform[el.id] = el.value;
+  // 日本語変換中は結果を描き直さない（変換が途切れるため）。結果欄だけ更新して入力欄はそのまま
+  if (el.id==="hq"){ S.hist.q = el.value; S.hist.limit = HIST_LIMIT; if (!ev.isComposing) $("#hres").innerHTML = histResults(); }
 });
+document.addEventListener("compositionend", ev => { if (ev.target.id==="hq"){ S.hist.q = ev.target.value; $("#hres").innerHTML = histResults(); } });
 document.addEventListener("change", async ev => {
   const el = ev.target;
   if (el.id in S.pform){ S.pform[el.id] = el.value; return; }
   if (el.id==="scope"){ S.scope=el.value; render(); return; }
+  if (el.id==="hfrom" || el.id==="hto"){ S.hist[el.id==="hfrom"?"from":"to"]=el.value; S.hist.preset="custom"; S.hist.limit=HIST_LIMIT; render(); return; }
+  if (el.id==="hrtype" || el.id==="hcls"){ S.hist[el.id.slice(1)]=el.value; S.hist.limit=HIST_LIMIT; render(); return; }
   if (el.id==="ld"){ if (el.value){ S.listDate=el.value; S.form.d=el.value; render(); } return; }
   if (el.dataset.field){
     const f = el.dataset.field;
@@ -772,7 +1049,11 @@ document.addEventListener("change", async ev => {
   if (el.dataset.plan!==undefined && el.dataset.plan){ const col = el.dataset.src==="auto" ? eCol(key) : pCol(key);
     if (await write(()=>col.doc(el.dataset.plan).update({plan:el.value}))) toast("来場予定日を保存しました"); return; }
 });
-document.addEventListener("keydown", ev => { if (ev.key==="Enter" && ev.target.id==="fn"){ ev.preventDefault(); ev.target.blur(); } });
+document.addEventListener("keydown", ev => {
+  if (ev.key==="Enter" && (ev.target.id==="fn" || ev.target.id==="hq")){ ev.preventDefault(); ev.target.blur(); }
+  if (ev.key==="Enter" && ev.target.matches("tr[tabindex]")) ev.target.click();
+  if (ev.key==="Escape" && S.sheet.length) closeSheet();
+});
 
 /* ---------- boot ---------- */
 const sess = store.get("hcs_session");
